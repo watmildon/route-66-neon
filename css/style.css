@@ -1,0 +1,407 @@
+:root {
+  --bg: #0b0b12;
+  --panel: rgba(13, 12, 22, 0.94);
+  --panel-solid: #0f0e1a;
+  --text: #ece9ff;
+  --muted: #9d9aba;
+  --line: rgba(255, 255, 255, 0.09);
+  --hover: rgba(255, 255, 255, 0.06);
+  --pink: #ff2bd6;
+  --amber: #ffb347;
+  --link: #8fd3ff;
+  --radius: 12px;
+  --sidebar-w: 310px;
+  --detail-w: 390px;
+  --gap: 12px;
+  --ctrl-w: 40px; /* MapLibre's control column: 29px buttons + 10px margin */
+  --info-h: 52px; /* room under the panel for the ⓘ control */
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--link); }
+code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radius: 4px; }
+
+#map { position: fixed; inset: 0; }
+
+/* ---------- neon type ---------- */
+
+.neon-title {
+  margin: 0;
+  font-family: "Monoton", system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: 1px;
+  color: #fff4fd;
+  text-shadow: 0 0 2px #fff, 0 0 8px var(--pink), 0 0 18px var(--pink), 0 0 36px var(--pink);
+}
+.neon-title span {
+  color: #fff6e6;
+  text-shadow: 0 0 2px #fff, 0 0 8px var(--amber), 0 0 18px var(--amber), 0 0 36px var(--amber);
+}
+
+/* ---------- panels ---------- */
+
+#sidebar, .detail {
+  position: fixed;
+  z-index: 2;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+/* Not on .detail: backdrop-filter would become the containing block for the
+   position:fixed expanded photo and trap it inside the panel. */
+#sidebar { backdrop-filter: blur(8px); }
+
+#sidebar {
+  top: var(--gap);
+  left: var(--gap);
+  width: var(--sidebar-w);
+  max-height: calc(100% - 2 * var(--gap));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#sidebar header { padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.sidebar-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+#sidebar.collapsed .sidebar-body { display: none; }
+#sidebar.collapsed header { border-bottom: 0; }
+/* Caret points up ("fold away") when open, down ("unfold") when collapsed. */
+#sidebar-toggle .caret { transition: transform 0.15s ease; }
+#sidebar.collapsed #sidebar-toggle .caret { transform: rotate(180deg); }
+
+#filter {
+  margin: 10px 12px 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+}
+#filter:focus { outline: 2px solid var(--pink); outline-offset: 0; }
+.list-hint { margin: 4px 14px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+#sign-list { list-style: none; margin: 0; padding: 4px 6px 8px; overflow-y: auto; flex: 1; min-height: 60px; }
+#sign-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+#sign-list button:hover, #sign-list button:focus-visible { background: var(--hover); outline: none; }
+#sign-list button[aria-current="true"] { background: rgba(255, 43, 214, 0.14); }
+#sign-list .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sign-list .cam { color: var(--muted); flex: none; }
+#sign-list .empty { padding: 10px; color: var(--muted); }
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c, var(--pink));
+  box-shadow: 0 0 4px var(--c, var(--pink)), 0 0 10px var(--c, var(--pink));
+}
+
+#sidebar footer { padding: 10px 14px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+#sidebar footer p { margin: 0 0 6px; }
+#sidebar footer p:last-child { margin-bottom: 0; }
+.legend { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pink); box-shadow: 0 0 8px var(--pink); }
+.legend-line { width: 22px; height: 3px; border-radius: 2px; background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.legend-line.alt { height: 2px; box-shadow: none; opacity: 0.75; background: repeating-linear-gradient(90deg, var(--amber) 0 5px, transparent 5px 9px); }
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.icon-btn:hover { background: var(--hover); }
+
+/* ---------- detail panel ---------- */
+
+/* The map controls (zoom, locate, ⓘ) keep the screen's right edge; the panel
+   sits just left of them, and stops short of the bottom so the expanded ⓘ
+   credits have a clear strip to open into. */
+.detail {
+  top: var(--gap);
+  right: calc(var(--ctrl-w) + var(--gap));
+  width: var(--detail-w);
+  max-height: calc(100% - var(--gap) - var(--info-h));
+  overflow-y: auto;
+  padding: 14px;
+}
+.detail[hidden] { display: none; }
+
+.detail-top { display: flex; align-items: flex-start; gap: 10px; }
+.sign-title {
+  flex: 1;
+  margin: 2px 0 12px;
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 6px var(--c), 0 0 16px var(--c);
+  overflow-wrap: anywhere;
+}
+
+.photo {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+}
+.photo img, .photo iframe { width: 100%; height: 100%; border: 0; object-fit: contain; display: block; }
+.photo .msg { padding: 16px; text-align: center; color: var(--muted); }
+.spinner {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15); border-top-color: var(--pink);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- expandable photo ---------- */
+
+.photo-stage { position: relative; }
+.photo-top { display: none; }
+
+.photo-expand {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  cursor: pointer;
+}
+.photo-expand:hover, .photo-expand:focus-visible { background: rgba(255, 43, 214, 0.55); outline: none; }
+
+.photo-frame.expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  background: #06050c; /* opaque: the panel's neon glow would show through */
+}
+.photo-frame.expanded .photo-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.photo-top-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 6px var(--c), 0 0 16px var(--c);
+}
+.photo-top-nav { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.photo-top-nav button {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.photo-top-nav button:hover:not(:disabled) { background: var(--hover); }
+.photo-top-nav button:disabled { opacity: 0.35; cursor: default; }
+.photo-frame.expanded .photo-stage { flex: 1; min-height: 0; }
+.photo-frame.expanded .photo { aspect-ratio: auto; height: 100%; }
+.photo-frame.expanded .photo-expand { display: none; }
+.photo-frame.expanded .photo-foot { flex: none; }
+
+.photo-meta { margin: 6px 2px 0; font-size: 12px; color: var(--muted); min-height: 1em; }
+.photo-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.photo-tabs button {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.photo-tabs button[aria-pressed="true"] { border-color: var(--pink); background: rgba(255, 43, 214, 0.15); }
+
+/* ---------- Wikipedia / Wikidata ---------- */
+
+.section-label {
+  margin: 16px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.wiki-card {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.wiki-card + .wiki-card { margin-top: 8px; }
+.wiki-thumb { flex: none; width: 84px; height: 84px; border-radius: 6px; overflow: hidden; background: #000; }
+.wiki-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wiki-body { min-width: 0; }
+.wiki-body p { margin: 0; }
+.wiki-title { font-weight: 700; font-size: 15px; }
+.wiki-title a { color: var(--text); text-decoration: none; }
+.wiki-title a:hover { text-decoration: underline; }
+.wiki-desc { color: var(--muted); font-size: 13px; margin-top: 2px !important; }
+.wiki-links { display: flex; gap: 12px; font-size: 13px; margin-top: 6px !important; }
+.wiki-via { font-size: 12px; color: var(--muted); margin-top: 6px !important; }
+
+.wbadge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  color: var(--muted);
+  font: 700 10px/1 Georgia, "Times New Roman", serif;
+}
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 14px 0 0; font-size: 13px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.open-in { display: flex; flex-wrap: wrap; gap: 8px; }
+.tool-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+.tool-btn:hover, .tool-btn:focus-visible {
+  border-color: var(--pink);
+  background: rgba(255, 43, 214, 0.12);
+  outline: none;
+}
+.tool-btn svg { width: 22px; height: 22px; }
+.tool-btn img { width: 24px; height: 24px; display: block; }
+.tool-btn img.invert { filter: invert(1); } /* iD's logo is dark grey */
+.josm-status { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.josm-status:empty { display: none; }
+
+.all-tags { margin-top: 12px; font-size: 12px; }
+.all-tags summary { cursor: pointer; color: var(--muted); }
+.all-tags table { width: 100%; border-collapse: collapse; margin-top: 6px; font-family: ui-monospace, Consolas, monospace; }
+.all-tags td { padding: 2px 6px 2px 0; vertical-align: top; overflow-wrap: anywhere; }
+.all-tags td:first-child { color: var(--muted); white-space: nowrap; }
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.stepper button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.stepper button:hover:not(:disabled) { background: var(--hover); }
+.stepper button:disabled { opacity: 0.35; cursor: default; }
+
+
+.maplibregl-popup.hover-tip .maplibregl-popup-content {
+  background: var(--panel-solid);
+  color: var(--text);
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+.maplibregl-popup.hover-tip .maplibregl-popup-tip { display: none; }
+.route-tip { display: grid; gap: 2px; }
+.route-tip .sub { color: var(--amber); font-size: 12px; }
+.route-tip .note { font-size: 12px; }
+.route-tip .foot { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+/* ---------- phones ---------- */
+
+@media (max-width: 720px) {
+  :root { --gap: 8px; }
+  #sidebar { right: var(--gap); width: auto; max-height: 48%; }
+  .neon-title { font-size: 21px; }
+  .detail {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 62%;
+    border-radius: 16px 16px 0 0;
+  }
+  /* Phones: the panel is a full-width bottom sheet; controls float above it. */
+  body.detail-open .maplibregl-ctrl-bottom-right { bottom: 62%; }
+  body.detail-open #sidebar { display: none; }
+}

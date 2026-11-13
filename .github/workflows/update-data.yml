@@ -1,0 +1,70 @@
+name: Update neon sign data
+
+on:
+  schedule:
+    # Signs: daily at 07:41 UTC — off the hour to dodge GitHub's busiest cron
+    # slots and the 04:00 UTC Overpass crunch.
+    - cron: '41 7 * * *'
+    # Route line: weekly (Monday 08:17 UTC); the alignment rarely changes.
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      refresh_route:
+        description: Also re-download the Route 66 line from Overpass
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Refresh signs (and route) from OSM
+    runs-on: ubuntu-latest
+    env:
+      NEON_USER_AGENT: ${{ vars.USER_AGENT || 'neon-sign-map/1.0 (+https://github.com/watmildon/neon-sign-map)' }}
+      NEON_BUFFER_M: ${{ vars.BUFFER_M || '400' }}
+      NEON_DROP_THRESHOLD: ${{ vars.DROP_THRESHOLD || '50' }}
+      NEON_MAX_DATA_LAG_HOURS: ${{ vars.MAX_DATA_LAG_HOURS || '48' }}
+      # Optional private Overpass instance. Empty → public mirrors.
+      OVERPASS_PRIMARY_URL: ${{ secrets.OVERPASS_PRIMARY_URL }}
+      # Mapillary token (a tiles-only key is enough) for aiming 360° photos at
+      # newly tagged signs. Empty → new photos still show, just not aimed.
+      MAPILLARY_TOKEN: ${{ secrets.MAPILLARY_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Refresh the Route 66 line (Overpass)
+        if: github.event.schedule == '17 8 * * 1' || inputs.refresh_route
+        # If Overpass is unavailable, keep going with the committed line.
+        continue-on-error: true
+        run: node scripts/fetch-route.mjs
+
+      - name: Fetch neon signs (Postpass, Overpass fallback)
+        run: node scripts/fetch-signs.mjs
+
+      - name: Test code and data
+        run: npm test
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/signs.geojson data/route66.geojson data/alignments.geojson
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update neon sign data from OSM"
+            git push
+          fi

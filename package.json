@@ -1,0 +1,16 @@
+{
+  "name": "neon-sign-map",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MapLibre map of neon signs along Historic Route 66, from OpenStreetMap.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "fetch:route": "node scripts/fetch-route.mjs",
+    "fetch:signs": "node scripts/fetch-signs.mjs",
+    "test": "node --test",
+    "serve": "python -m http.server 8000"
+  }
+}

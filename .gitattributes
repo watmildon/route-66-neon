@@ -1,0 +1,5 @@
+* text=auto
+# Data files are written by CI on Linux; keep LF everywhere so diffs stay clean.
+*.geojson text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf

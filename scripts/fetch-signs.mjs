@@ -1,0 +1,273 @@
+// Fetch every neon sign near Historic Route 66 and write data/signs.geojson.
+//
+//   node scripts/fetch-signs.mjs
+//
+// 1. Ask Postpass for luminous signs inside the route's bounding box
+//    (falls back to Overpass if Postpass is down or stale).
+// 2. Keep advertising=sign + luminous=yes or neon (see js/signs.js).
+// 3. Keep only signs within NEON_BUFFER_M metres of the route lines in
+//    data/route66.geojson and data/alignments.geojson — plenty of luminous=yes signs elsewhere are plain
+//    backlit boxes, not part of this project.
+//
+// Safety rails (same pattern as MascotMap / lighthousemap):
+//   * refuses data older than NEON_MAX_DATA_LAG_HOURS (default 48)
+//   * refuses to overwrite if the sign count drops more than
+//     NEON_DROP_THRESHOLD percent (default 50) — partial responses happen
+//   * one feature per line, sorted by OSM id, tags sorted — readable diffs
+//   * leaves the file untouched when nothing changed, so no empty commits
+
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { imageSources } from "../js/images.js";
+import { isNeonSign } from "../js/signs.js";
+import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
+import { lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
+import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
+import { enrichWikiLinks, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROUTE = join(ROOT, "data", "route66.geojson");
+const ALIGNMENTS = join(ROOT, "data", "alignments.geojson");
+const OUTPUT = join(ROOT, "data", "signs.geojson");
+
+const BUFFER_M = Number(process.env.NEON_BUFFER_M || 400);
+const DROP_THRESHOLD = Number(process.env.NEON_DROP_THRESHOLD || 50);
+
+function loadRoute() {
+  if (!existsSync(ROUTE)) throw new Error("data/route66.geojson is missing — run scripts/fetch-route.mjs first.");
+  const fc = JSON.parse(readFileSync(ROUTE, "utf8"));
+  const lines = fc.features.flatMap((f) => f.geometry.coordinates);
+  // Other former US 66 alignments (OK 66, MO 366, old_ref=US 66 …) count too.
+  if (existsSync(ALIGNMENTS)) {
+    for (const f of JSON.parse(readFileSync(ALIGNMENTS, "utf8")).features) lines.push(f.geometry.coordinates);
+  } else {
+    console.warn("WARNING: data/alignments.geojson is missing; using the Historic Route 66 relations only.");
+  }
+  return lines;
+}
+
+function paddedBbox(lines) {
+  const [w, s, e, n] = linesBounds(lines);
+  const pad = (BUFFER_M * 2) / M_PER_DEG; // generous; the exact test is the buffer below
+  return [w - pad * 1.4, s - pad, e + pad * 1.4, n + pad].map((v) => round(v, 4));
+}
+
+async function fromPostpass([w, s, e, n]) {
+  // Broad on purpose (any luminous advertising with "sign" in it); the exact
+  // tag test happens in isNeonSign so Postpass and Overpass agree.
+  const sql = `
+SELECT osm_type, osm_id, tags, ST_PointOnSurface(geom) AS geom
+FROM postpass_pointlinepolygon
+WHERE geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
+  AND tags ? 'luminous'
+  AND tags->>'advertising' LIKE '%sign%'`;
+  return postpassQuery(sql);
+}
+
+async function fromOverpass([w, s, e, n]) {
+  const ql = `[out:json][timeout:180];
+nwr["advertising"~"(^|;) *sign *(;|$)"]["luminous"](${s},${w},${n},${e});
+out center tags qt;`;
+  const { json, timestamp } = await overpassQuery(ql, { repoRoot: ROOT });
+  return { timestamp, elements: overpassToElements(json) };
+}
+
+const sortKeys = (o) => Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]]));
+const TYPE_RANK = { node: 0, way: 1, relation: 2 };
+
+function toFeature(el) {
+  return {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [round(el.lon, 7), round(el.lat, 7)] },
+    properties: { osm_type: el.type, osm_id: el.id, tags: sortKeys(el.tags) },
+  };
+}
+
+/**
+ * Attach properties.mapillary = { "<image id>": { lon, lat, compass, pano, captured } }
+ * so the viewer can turn 360° photos toward the sign. A photo never moves, so
+ * views already in the committed file are reused and only new ids are looked
+ * up (which needs a Mapillary token; without one, new photos just aren't aimed).
+ */
+async function attachMapillaryViews(features, existing) {
+  const known = new Map();
+  for (const f of existing?.features || []) {
+    for (const [id, view] of Object.entries(f.properties.mapillary || {})) {
+      // Views written before `creator` was recorded can't be aimed reliably; re-fetch them.
+      if (view.creator) known.set(id, view);
+    }
+  }
+
+  const idsFor = (f) =>
+    imageSources(f.properties.tags)
+      .filter((s) => s.kind === "mapillary")
+      .map((s) => s.id);
+
+  const wanted = [];
+  for (const f of features) {
+    for (const id of idsFor(f)) {
+      if (!known.has(id)) wanted.push({ id, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] });
+    }
+  }
+
+  if (wanted.length) {
+    const token = mapillaryToken(ROOT);
+    if (!token) {
+      console.warn(`${wanted.length} new Mapillary photo(s) can't be aimed: no MAPILLARY_TOKEN set.`);
+    } else {
+      console.log(`Looking up ${wanted.length} new Mapillary photo(s)…`);
+      const found = await lookupMapillaryViews(wanted, token);
+      for (const [id, view] of found) known.set(id, view);
+      const missing = wanted.filter((w) => !found.has(w.id)).map((w) => w.id);
+      if (missing.length) console.warn(`Not found in Mapillary coverage near the sign: ${missing.join(", ")}`);
+    }
+  }
+
+  for (const f of features) {
+    const views = {};
+    for (const id of idsFor(f)) if (known.has(id)) views[id] = sortKeys(known.get(id));
+    if (Object.keys(views).length) f.properties.mapillary = views;
+  }
+}
+
+/**
+ * Attach properties.wiki = [{ qid, label, description, wikipedia, image,
+ * source, source_name }] — the sign's own Wikipedia/Wikidata link and/or the
+ * matching wiki-linked place next to it (see scripts/lib/wiki.mjs). If a
+ * service is down, the previous run's entries are carried forward.
+ */
+async function attachWiki(features, existing) {
+  const key = (p) => `${p.osm_type}/${p.osm_id}`;
+  const previous = new Map((existing?.features || []).map((f) => [key(f.properties), f.properties.wiki || []]));
+  const prevDetails = new Map();
+  for (const entries of previous.values()) for (const e of entries) if (e.qid) prevDetails.set(e.qid, e);
+
+  const signs = features.map((f) => ({
+    type: f.properties.osm_type,
+    id: f.properties.osm_id,
+    lon: f.geometry.coordinates[0],
+    lat: f.geometry.coordinates[1],
+    tags: f.properties.tags,
+  }));
+
+  let places = null;
+  try {
+    places = await fetchWikiPlaces(signs, ROOT);
+    console.log(`${places.length} wiki-linked OSM places near the signs.`);
+  } catch (e) {
+    console.warn(`Couldn't fetch wiki-linked places (${e.message.split("\n")[0]}); keeping previous links.`);
+  }
+
+  const links = signs.map((s, i) => {
+    if (places) return pickWikiLinks(s, places);
+    const prev = previous.get(key(features[i].properties));
+    if (prev?.length) {
+      return prev.map((e) => ({ qid: e.qid || null, wikipedia: e.wikipedia || null, source: e.source, sourceName: e.source_name || null }));
+    }
+    return pickWikiLinks(s, []); // the sign's own tags still count
+  });
+
+  const flat = links.flat();
+  let entries;
+  try {
+    entries = flat.length ? await enrichWikiLinks(flat) : [];
+  } catch (e) {
+    console.warn(`Wikidata lookup failed (${e.message}); reusing previous labels.`);
+    entries = flat.map((l) => toEntry(l, prevDetails.get(l.qid) || {}));
+  }
+
+  let n = 0;
+  features.forEach((f, i) => {
+    const mine = entries.slice(n, n + links[i].length);
+    n += links[i].length;
+    if (mine.length) f.properties.wiki = mine;
+  });
+  console.log(`${features.filter((f) => f.properties.wiki).length} signs have Wikipedia/Wikidata links.`);
+}
+
+function serialize(header, features) {
+  const head = JSON.stringify({ type: "FeatureCollection", ...header }).slice(0, -1);
+  return `${head},"features":[\n${features.map((f) => JSON.stringify(f)).join(",\n")}\n]}\n`;
+}
+
+function readExisting() {
+  if (!existsSync(OUTPUT)) return null;
+  try {
+    return JSON.parse(readFileSync(OUTPUT, "utf8"));
+  } catch {
+    console.warn("WARNING: existing data/signs.geojson is unreadable; it will be replaced.");
+    return null;
+  }
+}
+
+async function main() {
+  const lines = loadRoute();
+  const index = new SegmentIndex(lines);
+  const bbox = paddedBbox(lines);
+
+  // NEON_SOURCE=overpass skips Postpass (for testing, or when it's down).
+  let result, source;
+  try {
+    if (process.env.NEON_SOURCE === "overpass") throw new Error("skipped via NEON_SOURCE=overpass");
+    console.log("Querying Postpass…");
+    result = await fromPostpass(bbox);
+    source = "postpass";
+  } catch (e) {
+    console.warn(`Postpass not used (${e.message.split("\n")[0]}); querying Overpass.`);
+    result = await fromOverpass(bbox);
+    source = "overpass";
+  }
+  console.log(`${source}: ${result.elements.length} candidate luminous signs in the bounding box.`);
+
+  const byKey = new Map();
+  let offRoute = 0;
+  for (const el of result.elements) {
+    if (!isNeonSign(el.tags)) continue;
+    if (index.nearestM([el.lon, el.lat], BUFFER_M) === Infinity) {
+      offRoute++;
+      continue;
+    }
+    byKey.set(`${el.type}/${el.id}`, el);
+  }
+  const features = [...byKey.values()]
+    .sort((a, b) => TYPE_RANK[a.type] - TYPE_RANK[b.type] || a.id - b.id)
+    .map(toFeature);
+  console.log(`${features.length} neon signs within ${BUFFER_M} m of Route 66 (${offRoute} elsewhere skipped).`);
+
+  if (!features.length) throw new Error("No neon signs found; refusing to write an empty map.");
+
+  const existing = readExisting();
+  await attachMapillaryViews(features, existing);
+  await attachWiki(features, existing);
+  const oldFeatures = existing?.features || [];
+  if (oldFeatures.length) {
+    const drop = ((oldFeatures.length - features.length) / oldFeatures.length) * 100;
+    if (drop > DROP_THRESHOLD) {
+      throw new Error(
+        `SAFETY CHECK FAILED: signs dropped ${oldFeatures.length} → ${features.length} ` +
+          `(${drop.toFixed(0)}%, threshold ${DROP_THRESHOLD}%). Not updating.`
+      );
+    }
+  }
+
+  const same =
+    oldFeatures.length === features.length &&
+    oldFeatures.every((f, i) => JSON.stringify(f) === JSON.stringify(features[i])) &&
+    existing?.buffer_m === BUFFER_M;
+  if (same) {
+    console.log("No changes to the signs; leaving data/signs.geojson untouched.");
+    return;
+  }
+
+  writeFileSync(
+    OUTPUT,
+    serialize({ osm_base: result.timestamp, source, buffer_m: BUFFER_M }, features)
+  );
+  console.log(`Wrote ${features.length} signs to ${OUTPUT} (${oldFeatures.length} before).`);
+}
+
+main().catch((e) => {
+  console.error(String(e.message || e));
+  process.exit(1);
+});
