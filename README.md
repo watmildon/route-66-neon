@@ -133,7 +133,7 @@ Overpass URL:
 | `BUFFER_M` | `400` | Corridor width either side of the route line |
 | `DROP_THRESHOLD` | `50` | Max % drop in sign count before the update is refused |
 | `MAX_DATA_LAG_HOURS` | `48` | Max OSM data age accepted |
-| `USER_AGENT` | `neon-sign-map/1.0 (+repo URL)` | Sent to Postpass/Overpass |
+| `USER_AGENT` | `route-66-neon/1.0 (+repo URL)` | Sent to Postpass/Overpass |
 
 Locally, the scripts find a private Overpass endpoint from `OVERPASS_URL` /
 `OVERPASS_PRIMARY_URL`, then `.overpass-url` in the repo root (gitignored),

@@ -26,7 +26,7 @@ jobs:
     name: Refresh signs (and route) from OSM
     runs-on: ubuntu-latest
     env:
-      NEON_USER_AGENT: ${{ vars.USER_AGENT || 'neon-sign-map/1.0 (+https://github.com/watmildon/neon-sign-map)' }}
+      NEON_USER_AGENT: ${{ vars.USER_AGENT || 'route-66-neon/1.0 (+https://github.com/watmildon/route-66-neon)' }}
       NEON_BUFFER_M: ${{ vars.BUFFER_M || '400' }}
       NEON_DROP_THRESHOLD: ${{ vars.DROP_THRESHOLD || '50' }}
       NEON_MAX_DATA_LAG_HOURS: ${{ vars.MAX_DATA_LAG_HOURS || '48' }}

@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function userAgent() {
   return (
     process.env.NEON_USER_AGENT ||
-    "neon-sign-map/1.0 (+https://github.com/watmildon/neon-sign-map)"
+    "route-66-neon/1.0 (+https://github.com/watmildon/route-66-neon)"
   );
 }
 
