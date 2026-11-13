@@ -757,7 +757,6 @@ function routeTip(p) {
       <strong>${esc(p.name || p.label)}</strong>
       ${p.name ? `<span class="sub">${esc(p.label)}</span>` : ""}
       <span class="note">${esc(p.note)}</span>
-      <span class="foot">Not in OSM's Historic Route 66 relations; included so the signs along it show.</span>
     </div>`;
 }
 
