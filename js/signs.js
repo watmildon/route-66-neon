@@ -9,16 +9,26 @@ export function splitValues(value) {
     .filter(Boolean);
 }
 
+/** advertising=* values that count. A neon roof sign is sometimes tagged billboard. */
+export const SIGN_TYPES = ["sign", "billboard"];
+
 /**
- * The project's tagging: advertising=sign + luminous=yes.
- * Also accepts multi-valued advertising ("sign;letter_board") and
- * luminous=neon. That value is more specific than yes, so the map must keep
- * accepting it rather than nudge mappers to retag it as yes.
+ * The project's tagging: advertising=sign (or billboard) that is lit from
+ * within, i.e. luminous=yes or neon, or light:method=neon. light:method=neon
+ * is the preferred tag because it tells neon apart from other luminous signs;
+ * it counts on its own. Multi-valued tags ("sign;letter_board") are fine, and
+ * values are compared case-insensitively.
+ *
+ * animated=* other than "no" (screen, digital_display, scrolling …) marks a
+ * digital billboard or similar, so it's left out unless light:method=neon says
+ * otherwise (some classic neon signs have chasing or sequenced tubes).
  */
 export function isNeonSign(tags = {}) {
-  const advertising = splitValues(tags.advertising).map((v) => v.toLowerCase());
-  const luminous = splitValues(tags.luminous).map((v) => v.toLowerCase());
-  return advertising.includes("sign") && luminous.some((v) => v === "yes" || v === "neon");
+  const values = (key) => splitValues(tags[key]).map((v) => v.toLowerCase());
+  if (!values("advertising").some((v) => SIGN_TYPES.includes(v))) return false;
+  const neon = values("light:method").includes("neon");
+  if (!neon && values("animated").some((v) => v !== "no")) return false;
+  return neon || values("luminous").some((v) => v === "yes" || v === "neon");
 }
 
 export const DEFAULT_NEON = "#ff2bd6";

@@ -2,9 +2,10 @@
 //
 //   node scripts/fetch-signs.mjs
 //
-// 1. Ask Postpass for luminous signs inside the route's bounding box
+// 1. Ask Postpass for lit signs and billboards inside the route's bounding box
 //    (falls back to Overpass if Postpass is down or stale).
-// 2. Keep advertising=sign + luminous=yes or neon (see js/signs.js).
+// 2. Keep advertising=sign or billboard + luminous=yes/neon or
+//    light:method=neon (see isNeonSign in js/signs.js).
 // 3. Keep only signs within NEON_BUFFER_M metres of the route lines in
 //    data/route66.geojson and data/alignments.geojson — plenty of luminous=yes signs elsewhere are plain
 //    backlit boxes, not part of this project.
@@ -20,7 +21,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { imageSources } from "../js/images.js";
-import { isNeonSign } from "../js/signs.js";
+import { isNeonSign, SIGN_TYPES } from "../js/signs.js";
 import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
 import { lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
 import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
@@ -54,20 +55,24 @@ function paddedBbox(lines) {
 }
 
 async function fromPostpass([w, s, e, n]) {
-  // Broad on purpose (any luminous advertising with "sign" in it); the exact
-  // tag test happens in isNeonSign so Postpass and Overpass agree.
+  // Broad on purpose (any sign or billboard with luminous or light:method);
+  // the exact tag test happens in isNeonSign so Postpass and Overpass agree.
   const sql = `
 SELECT osm_type, osm_id, tags, ST_PointOnSurface(geom) AS geom
 FROM postpass_pointlinepolygon
 WHERE geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
-  AND tags ? 'luminous'
-  AND tags->>'advertising' LIKE '%sign%'`;
+  AND (tags ? 'luminous' OR tags ? 'light:method')
+  AND (tags->>'advertising' ILIKE '%sign%' OR tags->>'advertising' ILIKE '%billboard%')`;
   return postpassQuery(sql);
 }
 
 async function fromOverpass([w, s, e, n]) {
+  const adv = `["advertising"~"(^|;) *(${SIGN_TYPES.join("|")}) *(;|$)",i]`;
   const ql = `[out:json][timeout:180];
-nwr["advertising"~"(^|;) *sign *(;|$)"]["luminous"](${s},${w},${n},${e});
+(
+  nwr${adv}["luminous"](${s},${w},${n},${e});
+  nwr${adv}["light:method"](${s},${w},${n},${e});
+);
 out center tags qt;`;
   const { json, timestamp } = await overpassQuery(ql, { repoRoot: ROOT });
   return { timestamp, elements: overpassToElements(json) };
@@ -218,7 +223,7 @@ async function main() {
     result = await fromOverpass(bbox);
     source = "overpass";
   }
-  console.log(`${source}: ${result.elements.length} candidate luminous signs in the bounding box.`);
+  console.log(`${source}: ${result.elements.length} candidate lit signs in the bounding box.`);
 
   const byKey = new Map();
   let offRoute = 0;

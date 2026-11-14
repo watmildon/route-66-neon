@@ -14,10 +14,28 @@ test("isNeonSign follows the project tagging", () => {
   assert.equal(isNeonSign({ advertising: "Sign", luminous: "Yes" }), true);
 });
 
+test("isNeonSign accepts billboards and light:method=neon", () => {
+  assert.equal(isNeonSign({ advertising: "billboard", luminous: "yes" }), true);
+  assert.equal(isNeonSign({ advertising: "billboard", luminous: "yes", "light:method": "neon" }), true);
+  assert.equal(isNeonSign({ advertising: "sign", "light:method": "neon" }), true);
+  assert.equal(isNeonSign({ advertising: "billboard", "light:method": "Neon" }), true);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", "light:method": "led" }), true);
+});
+
+test("isNeonSign leaves out animated displays unless tagged neon", () => {
+  assert.equal(isNeonSign({ advertising: "billboard", luminous: "yes", animated: "screen" }), false);
+  assert.equal(isNeonSign({ advertising: "billboard", luminous: "yes", animated: "digital_display" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", animated: "yes" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", animated: "no" }), true);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", animated: "yes", "light:method": "neon" }), true);
+});
+
 test("isNeonSign rejects other signage", () => {
   assert.equal(isNeonSign({ advertising: "sign", luminous: "no" }), false);
   assert.equal(isNeonSign({ advertising: "sign" }), false);
-  assert.equal(isNeonSign({ advertising: "billboard", luminous: "yes" }), false);
+  assert.equal(isNeonSign({ advertising: "billboard", luminous: "no" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", "light:method": "led" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", illuminated: "yes" }), false);
   assert.equal(isNeonSign({ advertising: "totem", luminous: "yes" }), false);
   assert.equal(isNeonSign({ advertising: "signpost", luminous: "yes" }), false);
   assert.equal(isNeonSign({}), false);

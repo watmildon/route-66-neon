@@ -4,8 +4,9 @@ A [MapLibre GL](https://maplibre.org/) map of the neon signs along Historic
 Route 66, built from OpenStreetMap data mapped during the OSM US
 [#mapping-route-66-neon](https://tasks.openstreetmap.us/projects/1352) event.
 
-- Every sign tagged `advertising=sign` + `luminous=yes` (or the more specific
-  `luminous=neon`) within 400 m of the
+- Every sign tagged `advertising=sign` (or `billboard`) that is lit from
+  within, i.e. `luminous=yes`, `luminous=neon` or `light:method=neon`, within
+  400 m of the
   Historic Route 66 alignment shows as a glowing dot, coloured by `colour=*`
   when it's set.
 - The corridor also takes in former US 66 alignments that OSM's Historic
@@ -105,7 +106,7 @@ the sign, or make sure the place next to it has `wikidata=*` and a matching
 |---|---|---|
 | `data/route66.geojson` | `scripts/fetch-route.mjs`: the ways under superroute [93155](https://www.openstreetmap.org/relation/93155) plus any `network=US:US:Historic` + `ref=66` routes, from **Overpass**, merged and simplified to ~8 m | weekly |
 | `data/alignments.geojson` | `scripts/fetch-route.mjs`: other former US 66 alignments, i.e. the relations listed in `scripts/lib/alignments.mjs` plus ways tagged `old_ref=US 66` (and variants), minus anything already in the main line; one labelled feature per stretch | weekly |
-| `data/signs.geojson` | `scripts/fetch-signs.mjs`: luminous signs in the route's bounding box from **Postpass** (falls back to Overpass), filtered to the tagging and to within 400 m of either route file | daily |
+| `data/signs.geojson` | `scripts/fetch-signs.mjs`: lit signs and billboards in the route's bounding box from **Postpass** (falls back to Overpass), filtered to the tagging and to within 400 m of either route file | daily |
 
 [`.github/workflows/update-data.yml`](.github/workflows/update-data.yml) runs
 both, runs the tests, and commits only if the data changed. Safety rails:
@@ -120,6 +121,12 @@ both, runs the tests, and commits only if the data changed. Safety rails:
 
 The 400 m corridor matters because outside Route 66 many `luminous=yes`
 signs are ordinary backlit boxes, not neon.
+
+When tagging, prefer `light:method=neon` (with `luminous=yes`): it tells
+neon apart from other signs that are lit from within. The map accepts
+`luminous=yes` alone too, so older tagging still shows. Anything with
+`animated=*` other than `no` (`screen`, `digital_display` …) is treated as a
+digital display and left out, unless it's tagged `light:method=neon`.
 
 ### Settings
 
