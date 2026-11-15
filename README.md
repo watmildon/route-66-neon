@@ -15,8 +15,8 @@ Route 66, built from OpenStreetMap data mapped during the OSM US
   MO 366 and K-66. See [`scripts/lib/alignments.mjs`](scripts/lib/alignments.mjs).
 - Click a sign (or pick it from the list) to see its photo, key tags, and
   links to view or edit it in OSM.
-- **◀ Toward Chicago / Toward L.A. ▶** (or the ← → keys) steps sign by sign
-  along the drive.
+- **◀ Toward L.A. / Toward Chicago ▶** (or the ← → keys) steps sign by sign
+  along the drive. Left is west, as on the map.
 - Each sign has a shareable URL such as `…/#node/8813401256`.
 
 No build step: it's a static site (HTML, CSS, ES modules) plus two GeoJSON

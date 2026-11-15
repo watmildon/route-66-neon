@@ -555,18 +555,20 @@ function renderStepper(s) {
   if (!el) return;
   const list = state.visible;
   const i = list.findIndex((x) => x.key === s.key);
-  const prevOff = i <= 0 ? "disabled" : "";
-  const nextOff = i === -1 || i >= list.length - 1 ? "disabled" : "";
+  // The list runs east → west (Chicago first), but on screen west is left, so
+  // the L.A. button goes on the left and Chicago on the right, like the map.
+  const eastOff = i <= 0 ? "disabled" : "";
+  const westOff = i === -1 || i >= list.length - 1 ? "disabled" : "";
   const count = `${i === -1 ? "–" : i + 1} / ${list.length}`;
   el.innerHTML = `
-    <button type="button" data-step="-1" ${prevOff} title="Previous sign (←)">◀ Toward Chicago</button>
+    <button type="button" data-step="1" ${westOff} title="Next sign west (←)">◀ Toward L.A.</button>
     <span>${count}</span>
-    <button type="button" data-step="1" ${nextOff} title="Next sign (→)">Toward L.A. ▶</button>`;
+    <button type="button" data-step="-1" ${eastOff} title="Next sign east (→)">Toward Chicago ▶</button>`;
   // Compact copy for the expanded photo's top bar.
   $("#photo-top-nav").innerHTML = `
-    <button type="button" data-step="-1" ${prevOff} aria-label="Previous sign, toward Chicago" title="Toward Chicago (←)">◀</button>
+    <button type="button" data-step="1" ${westOff} aria-label="Next sign toward L.A." title="Toward L.A. (←)">◀</button>
     <span>${count}</span>
-    <button type="button" data-step="1" ${nextOff} aria-label="Next sign, toward L.A." title="Toward L.A. (→)">▶</button>`;
+    <button type="button" data-step="-1" ${eastOff} aria-label="Next sign toward Chicago" title="Toward Chicago (→)">▶</button>`;
 }
 
 function renderPhotoTabs(s) {
@@ -873,8 +875,9 @@ function wireEvents() {
       else if (state.photoExpanded) setPhotoExpanded(false);
       else closeDetail();
     }
-    else if (e.key === "ArrowLeft" && state.selected) step(-1);
-    else if (e.key === "ArrowRight" && state.selected) step(1);
+    // Left/right follow the map: ← heads west toward L.A., → east toward Chicago.
+    else if (e.key === "ArrowLeft" && state.selected) step(1);
+    else if (e.key === "ArrowRight" && state.selected) step(-1);
   });
 }
 
