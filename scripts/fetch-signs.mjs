@@ -9,6 +9,8 @@
 // 3. Keep only signs within NEON_BUFFER_M metres of the route lines in
 //    data/route66.geojson and data/alignments.geojson — plenty of luminous=yes signs elsewhere are plain
 //    backlit boxes, not part of this project.
+// 4. Add what the viewer shows alongside each sign: Mapillary photo positions,
+//    Wikipedia/Wikidata links, and historical photos matched on Yesterdays.
 //
 // Safety rails (same pattern as MascotMap / lighthousemap):
 //   * refuses data older than NEON_MAX_DATA_LAG_HOURS (default 48)
@@ -26,6 +28,7 @@ import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
 import { lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
 import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
 import { enrichWikiLinks, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
+import * as yesterdays from "./lib/yesterdays.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ROUTE = join(ROOT, "data", "route66.geojson");
@@ -191,6 +194,70 @@ async function attachWiki(features, existing) {
   console.log(`${features.filter((f) => f.properties.wiki).length} signs have Wikipedia/Wikidata links.`);
 }
 
+/**
+ * Attach properties.yesterdays = [{ id, title, thumb, page, date, creator,
+ * source, collection, license, license_url, camera }]: historical photos and
+ * postcards on yesterdays.today matched by Wikidata subject or by a nearby
+ * georeference whose title names the sign (see scripts/lib/yesterdays.mjs).
+ * When a lookup fails, the sign keeps the previous run's photos.
+ */
+async function attachYesterdays(features, existing, bbox) {
+  const key = (p) => `${p.osm_type}/${p.osm_id}`;
+  const previous = new Map((existing?.features || []).map((f) => [key(f.properties), f.properties.yesterdays || []]));
+  const prevById = new Map([...previous.values()].flat().map((e) => [e.id, e]));
+
+  let georefs = null;
+  try {
+    georefs = await yesterdays.fetchGeoreferences(bbox);
+    console.log(`Yesterdays: ${georefs.length} georeferenced images along the route.`);
+  } catch (e) {
+    console.warn(`Yesterdays georeferences unavailable (${e.message}); keeping previous matches.`);
+  }
+
+  const bySubject = new Map(); // qid → ids, or null when the lookup failed
+  const wanted = new Map(); // sign key → { ids, incomplete }
+  for (const f of features) {
+    const ids = new Set();
+    let incomplete = !georefs;
+    for (const q of yesterdays.signQids(f.properties)) {
+      if (!bySubject.has(q)) {
+        try {
+          bySubject.set(q, await yesterdays.fetchSubjectImageIds(q));
+        } catch (e) {
+          console.warn(`Yesterdays subject ${q} lookup failed (${e.message}).`);
+          bySubject.set(q, null);
+        }
+      }
+      if (bySubject.get(q) === null) incomplete = true;
+      for (const id of bySubject.get(q) || []) ids.add(id);
+    }
+    if (georefs) {
+      const names = yesterdays.signNames(f.properties);
+      for (const id of yesterdays.matchGeoreferences(f.geometry.coordinates, names, georefs)) ids.add(id);
+    }
+    wanted.set(key(f.properties), { ids, incomplete });
+  }
+
+  const entries = new Map();
+  for (const id of new Set([...wanted.values()].flatMap((w) => [...w.ids]))) {
+    try {
+      entries.set(id, yesterdays.toEntry(await yesterdays.fetchImageDetail(id)));
+    } catch (e) {
+      console.warn(`Yesterdays image ${id} lookup failed (${e.message}); reusing what we had.`);
+      entries.set(id, prevById.get(id) || null);
+    }
+  }
+
+  for (const f of features) {
+    const { ids, incomplete } = wanted.get(key(f.properties));
+    const list = new Map([...ids].map((id) => [id, entries.get(id)]).filter(([, e]) => e));
+    if (incomplete) for (const e of previous.get(key(f.properties)) || []) if (!list.has(e.id)) list.set(e.id, e);
+    if (list.size) f.properties.yesterdays = [...list.values()].sort((a, b) => a.id - b.id).map(sortKeys);
+  }
+  const n = features.filter((f) => f.properties.yesterdays).length;
+  console.log(`Yesterdays: ${entries.size} images matched to ${n} signs.`);
+}
+
 function serialize(header, features) {
   const head = JSON.stringify({ type: "FeatureCollection", ...header }).slice(0, -1);
   return `${head},"features":[\n${features.map((f) => JSON.stringify(f)).join(",\n")}\n]}\n`;
@@ -245,6 +312,7 @@ async function main() {
   const existing = readExisting();
   await attachMapillaryViews(features, existing);
   await attachWiki(features, existing);
+  await attachYesterdays(features, existing, bbox);
   const oldFeatures = existing?.features || [];
   if (oldFeatures.length) {
     const drop = ((oldFeatures.length - features.length) / oldFeatures.length) * 100;

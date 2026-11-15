@@ -11,6 +11,7 @@ import {
   imageSources,
   parseCategoryFiles,
   parseCommonsInfo,
+  yesterdaysMapUrl,
 } from "../js/images.js";
 
 const kinds = (tags) => imageSources(tags).map((s) => `${s.kind}:${s.id}`);
@@ -92,6 +93,21 @@ test("sources are ordered Commons, gallery, Mapillary, Panoramax, URL, link and 
     imageSources(tags).map((s) => s.kind),
     ["commons", "gallery", "mapillary", "panoramax", "url", "link"]
   );
+});
+
+test("Yesterdays photos become one gallery tab after street-level imagery", () => {
+  const yesterdays = [
+    { id: 1, title: "A", thumb: "https://cdn.example/1.webp", page: "https://yesterdays.today/1/" },
+    { id: 2, title: "Bad", thumb: "javascript:alert(1)", page: "https://yesterdays.today/2/" },
+  ];
+  const sources = imageSources({ mapillary: "9", wikimedia_commons: "File:X.jpg", image: "https://example.com/a.jpg" }, { yesterdays });
+  assert.deepEqual(sources.map((s) => s.kind), ["commons", "mapillary", "yesterdays", "url"]);
+  const y = sources.find((s) => s.kind === "yesterdays");
+  assert.equal(y.label, "Yesterdays");
+  assert.deepEqual(y.items.map((i) => i.id), [1]);
+  assert.deepEqual(kinds({}), []);
+  assert.equal(imageSources({}, { yesterdays: [] }).length, 0);
+  assert.equal(yesterdaysMapUrl([-92.6402, 37.686]), "https://yesterdays.today/map/#17/37.68600/-92.64020");
 });
 
 test("Commons API URLs ask anonymously for credits and thumbnails", () => {

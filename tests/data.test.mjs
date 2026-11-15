@@ -60,6 +60,27 @@ test("wiki entries are well-formed", () => {
   }
 });
 
+test("Yesterdays entries are well-formed, sorted and near their sign when georeferenced", () => {
+  const fc = load("signs.geojson");
+  for (const f of fc.features) {
+    const list = f.properties.yesterdays || [];
+    const where = `${f.properties.osm_type}/${f.properties.osm_id}`;
+    list.forEach((e, i) => {
+      assert.ok(Number.isInteger(e.id) && e.id > 0, where);
+      if (i) assert.ok(list[i - 1].id < e.id, `${where}: yesterdays not sorted by id`);
+      assert.ok(e.title, `${where} image ${e.id}: no title`);
+      assert.match(e.thumb, /^https:\/\//, where);
+      assert.equal(e.page, `https://yesterdays.today/${e.id}/`, where);
+      for (const k of ["license_url", "original"]) if (e[k]) assert.match(e[k], /^https:\/\//, `${where} ${k}`);
+      if (e.camera) {
+        const [lon, lat] = f.geometry.coordinates;
+        const dKm = Math.hypot((e.camera.lon - lon) * 111 * Math.cos((lat * Math.PI) / 180), (e.camera.lat - lat) * 111);
+        assert.ok(dKm < 50, `${where} image ${e.id} is ${dKm.toFixed(1)} km from the sign`);
+      }
+    });
+  }
+});
+
 test("Mapillary views are well-formed and close to their sign", () => {
   const fc = load("signs.geojson");
   for (const f of fc.features) {

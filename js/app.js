@@ -7,6 +7,7 @@ import {
   imageSources,
   parseCategoryFiles,
   parseCommonsInfo,
+  yesterdaysMapUrl,
 } from "./images.js";
 import { neonColour, signTitle } from "./signs.js";
 import { MAPILLARY_CLIENT_TOKEN } from "./config.js";
@@ -95,8 +96,8 @@ async function boot() {
 function init(signsFc, routeFc, alignFc) {
   state.signs = signsFc.features
     .map((f) => {
-      const { osm_type: type, osm_id: id, tags = {}, mapillary = {}, wiki = [] } = f.properties;
-      const photos = imageSources(tags);
+      const { osm_type: type, osm_id: id, tags = {}, mapillary = {}, wiki = [], yesterdays = [] } = f.properties;
+      const photos = imageSources(tags, { yesterdays });
       return {
         key: `${type}/${id}`,
         type,
@@ -447,6 +448,7 @@ function renderDetail(s) {
       <a class="tool-btn" href="${idUrl}" target="_blank" rel="noopener" title="Edit in iD" aria-label="Edit in iD"><img class="invert" src="img/editors/id.png" alt=""></a>
       <a class="tool-btn" href="${rapidUrl(s)}" target="_blank" rel="noopener" title="Edit in Rapid" aria-label="Edit in Rapid">${RAPID_LOGO}</a>
       <button class="tool-btn" type="button" data-action="josm" title="Edit in JOSM (needs JOSM running with Remote Control on)" aria-label="Edit in JOSM"><img src="img/editors/josm.png" alt=""></button>
+      <a class="tool-btn" href="${esc(yesterdaysMapUrl(s.coord))}" target="_blank" rel="noopener" title="Old photos of this spot on Yesterdays" aria-label="Old photos of this spot on Yesterdays">${HISTORY_ICON}</a>
     </div>
     <p class="josm-status" id="josm-status" role="status" aria-live="polite"></p>
     <details class="all-tags">
@@ -472,6 +474,9 @@ function renderDetail(s) {
 // Monochrome logos (currentColor), from the Rapid editor's sprite (ISC).
 const OSM_LOGO = `<svg viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" d="M4,5 L11.813,25.5 L4,46 L11.813,66.531 L4,87.031 L8.813,88.875 L34.844,62.812 L39.531,63.531 L45.219,57.844 C41.87,53.964 39.339,49.332 37.969,44.219 L40.656,42.062 C40.199,39.939 39.938,37.726 39.938,35.469 C39.938,24.191 45.95,14.277 54.938,8.781 L45.031,5 L24.5,12.813 L4,5 z M71.094,9.313 C56.734,9.313 45.094,20.953 45.094,35.312 C45.094,49.672 56.734,61.312 71.094,61.312 C85.453,61.312 97.094,49.672 97.094,35.312 C97.094,20.953 85.453,9.313 71.094,9.313 z M91.156,59.469 C85.735,63.987 78.776,66.719 71.188,66.719 C68.93,66.719 66.717,66.458 64.594,66 L62.438,68.656 C57.582,67.355 53.131,65.067 49.375,61.969 L43.5,67.844 L44.219,72.188 L22.406,94.031 L24.5,94.844 L45.031,87.031 L65.531,94.844 L86.031,87.031 L93.844,66.531 L91.156,59.469 z"/></svg>`;
 const RAPID_LOGO = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M1.998,5.76 L3.619,5.76 C3.824,5.76 3.989,5.926 3.989,6.13 L3.989,6.144 C3.989,6.349 3.824,6.514 3.619,6.514 L1.998,6.514 C1.794,6.514 1.628,6.349 1.628,6.144 L1.628,6.13 C1.628,5.926 1.794,5.76 1.998,5.76 z"/><path d="M4.971,5.76 L6.592,5.76 C6.796,5.76 6.962,5.926 6.962,6.13 L6.962,6.144 C6.962,6.349 6.796,6.514 6.592,6.514 L4.971,6.514 C4.766,6.514 4.601,6.349 4.601,6.144 L4.601,6.13 C4.601,5.926 4.766,5.76 4.971,5.76 z"/><path d="M7.958,5.76 L9.579,5.76 C9.783,5.76 9.949,5.926 9.949,6.13 L9.949,6.144 C9.949,6.349 9.783,6.514 9.579,6.514 L7.958,6.514 C7.753,6.514 7.588,6.349 7.588,6.144 L7.588,6.13 C7.588,5.926 7.753,5.76 7.958,5.76 z"/><path d="M13.206,2.987 C11.556,2.133 9.608,2.446 8.327,3.641 L1.017,3.641 C0.746,3.641 0.519,3.869 0.519,4.139 C0.519,4.409 0.746,4.637 1.017,4.637 L11.129,4.637 C11.428,4.623 11.727,4.665 12.026,4.779 C12.623,5.016 13.081,5.508 13.275,6.121 C13.468,6.734 13.375,7.4 13.021,7.937 C12.466,8.776 11.385,9.117 10.447,8.747 C9.922,8.534 9.499,8.127 9.266,7.61 L2.894,7.61 C2.624,7.61 2.396,7.837 2.396,8.107 C2.396,8.378 2.624,8.605 2.894,8.605 L7.972,8.605 C8.242,8.605 8.47,8.833 8.47,9.103 C8.47,9.373 8.242,9.601 7.972,9.601 L5.084,9.601 C4.814,9.601 4.587,9.828 4.587,10.099 C4.587,10.369 4.814,10.597 5.084,10.597 L7.232,10.597 C7.502,10.597 7.73,10.824 7.73,11.094 C7.73,11.365 7.517,11.578 7.261,11.592 L6.734,11.592 C6.464,11.592 6.237,11.82 6.237,12.09 C6.237,12.36 6.464,12.588 6.734,12.588 L7.446,12.588 C7.517,12.915 7.574,13.171 7.616,13.342 C7.645,13.456 7.773,13.527 7.886,13.484 C8.967,13.071 13.761,11.109 14.998,8.733 C15.522,7.728 15.624,6.556 15.283,5.475 C14.941,4.395 14.184,3.494 13.178,2.973 z"/></svg>`;
+
+// A clock turning back: historical photos (Yesterdays). Generic, not their logo.
+const HISTORY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>`;
 
 const OSM_TYPE_LETTER = { node: "n", way: "w", relation: "r" };
 
@@ -601,7 +606,7 @@ async function renderPhoto(s) {
   }
 
   if (p.kind === "mapillary") return renderMapillary(s, p, token, box, meta);
-  if (p.kind === "gallery") return renderGallery(s, p, token, box, meta);
+  if (p.kind === "gallery" || p.kind === "yesterdays") return renderGallery(s, p, token, box, meta);
 
   const original = originalLink(p.href);
   meta.innerHTML = `${esc(p.credit)} · ${original}`;
@@ -641,43 +646,56 @@ function commonsCreditHtml(c) {
 }
 
 /**
- * A Commons category: a grid of thumbnails; clicking one enlarges it in the
- * same frame with a "Gallery" button to go back.
+ * A gallery tab — a Commons category, or the sign's Yesterdays photos: a grid
+ * of thumbnails; clicking one enlarges it in the same frame with a "Gallery"
+ * button to go back. A gallery of one photo opens straight to it.
+ * Items: { src, href, thumb, alt, caption (HTML), link (HTML) }.
  */
 async function renderGallery(s, p, token, box, meta) {
-  const catLink = `<a href="${esc(p.href)}" target="_blank" rel="noopener">${esc(p.id)}</a>`;
-  box.innerHTML = `<div class="spinner" role="status" aria-label="Loading gallery"></div>`;
-  meta.textContent = "";
-  let g;
-  try {
-    g = parseCategoryFiles(await commonsJson(commonsCategoryUrl(p.id)));
-  } catch (e) {
-    console.warn("Commons gallery lookup failed.", e);
-    if (token === state.renderToken) {
-      box.innerHTML = `<div class="msg">Couldn't load this Commons gallery.<br>${originalLink(p.href)}</div>`;
+  let g, intro, emptyMsg;
+  if (p.kind === "yesterdays") {
+    g = { items: p.items.map(yesterdaysItem), more: false };
+    const n = g.items.length;
+    intro = `${n} historical photo${n === 1 ? "" : "s"} on <a href="${esc(yesterdaysMapUrl(s.coord))}" target="_blank" rel="noopener">Yesterdays</a>`;
+  } else {
+    const catLink = `<a href="${esc(p.href)}" target="_blank" rel="noopener">${esc(p.id)}</a>`;
+    box.innerHTML = `<div class="spinner" role="status" aria-label="Loading gallery"></div>`;
+    meta.textContent = "";
+    try {
+      const c = parseCategoryFiles(await commonsJson(commonsCategoryUrl(p.id)));
+      g = { items: c.items.map(commonsItem), more: c.more };
+    } catch (e) {
+      console.warn("Commons gallery lookup failed.", e);
+      if (token === state.renderToken) {
+        box.innerHTML = `<div class="msg">Couldn't load this Commons gallery.<br>${originalLink(p.href)}</div>`;
+      }
+      return;
     }
-    return;
+    intro = `${g.items.length}${g.more ? "+" : ""} photos in ${catLink} on Wikimedia Commons${g.more ? ` (first ${g.items.length} shown)` : ""}`;
+    emptyMsg = `No photos in this Commons category yet.<br>${originalLink(p.href)}`;
   }
   if (token !== state.renderToken) return;
 
   if (!g.items.length) {
-    box.innerHTML = `<div class="msg">No photos in this Commons category yet.<br>${originalLink(p.href)}</div>`;
-    meta.innerHTML = `Wikimedia Commons · ${catLink}`;
+    box.innerHTML = `<div class="msg">${emptyMsg || "No photos."}</div>`;
+    meta.innerHTML = intro;
     return;
   }
 
+  const single = g.items.length === 1;
   const count = `${g.items.length}${g.more ? "+" : ""}`;
-  const item = state.galleryItem == null ? null : g.items[state.galleryItem];
+  const index = single ? 0 : state.galleryItem;
+  const item = index == null ? null : g.items[index];
   if (!item) {
     state.galleryItem = null;
-    box.innerHTML = `<ul class="gallery" aria-label="Photos in ${esc(p.id)}">${g.items
+    box.innerHTML = `<ul class="gallery" aria-label="${esc(p.label)} photos">${g.items
       .map(
-        (it, n) => `<li><button type="button" class="gallery-thumb" data-gallery="${n}" title="${esc(it.file.id)}">
-          <img src="${esc(it.thumb)}" alt="${esc(it.file.id.replace(/\.[a-z0-9]+$/i, ""))}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+        (it, n) => `<li><button type="button" class="gallery-thumb" data-gallery="${n}" title="${esc(it.alt)}">
+          <img src="${esc(it.thumb)}" alt="${esc(it.alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
         </button></li>`
       )
       .join("")}</ul>`;
-    meta.innerHTML = `${count} photos in ${catLink} on Wikimedia Commons${g.more ? ` (first ${g.items.length} shown)` : ""}`;
+    meta.innerHTML = intro;
     if (state.galleryFocus != null) {
       box.querySelector(`[data-gallery="${state.galleryFocus}"]`)?.focus({ preventScroll: false });
       state.galleryFocus = null;
@@ -685,15 +703,51 @@ async function renderGallery(s, p, token, box, meta) {
     return;
   }
 
-  const original = originalLink(item.file.href);
-  showImage(box, item.file.src, s.title, () => {
-    box.innerHTML = `<div class="msg">Couldn't load this photo.<br>${original}</div>`;
-    box.append(galleryBackButton());
+  showImage(box, item.src, s.title, () => {
+    box.innerHTML = `<div class="msg">Couldn't load this photo.<br>${item.link}</div>`;
+    if (!single) box.append(galleryBackButton());
   });
-  const back = galleryBackButton();
-  box.append(back);
-  back.focus({ preventScroll: true });
-  meta.innerHTML = [commonsCreditHtml(item.credit), `${state.galleryItem + 1} of ${count}`, original].join(" · ");
+  if (!single) {
+    const back = galleryBackButton();
+    box.append(back);
+    back.focus({ preventScroll: true });
+  }
+  meta.innerHTML = [item.caption, single ? "" : `${index + 1} of ${count}`, item.link].filter(Boolean).join(" · ");
+}
+
+function commonsItem(it) {
+  return {
+    src: it.file.src,
+    href: it.file.href,
+    thumb: it.thumb,
+    alt: it.file.id.replace(/\.[a-z0-9]+$/i, ""),
+    caption: commonsCreditHtml(it.credit),
+    link: originalLink(it.file.href),
+  };
+}
+
+/** A Yesterdays photo: “Title” · date · creator · source · licence, then a link to its page. */
+function yesterdaysItem(e) {
+  const source = e.source
+    ? e.collection
+      ? `<span title="${esc(e.collection)}">${esc(e.source)}</span>`
+      : esc(e.source)
+    : "";
+  const license = e.license
+    ? /^https:\/\//.test(e.license_url || "")
+      ? `<a href="${esc(e.license_url)}" target="_blank" rel="noopener license">${esc(e.license)}</a>`
+      : esc(e.license)
+    : /^https:\/\//.test(e.original || "")
+      ? `<a href="${esc(e.original)}" target="_blank" rel="noopener">Rights at source ↗</a>`
+      : "";
+  return {
+    src: e.thumb, // the largest single image Yesterdays serves (~500 px)
+    href: e.page,
+    thumb: e.thumb,
+    alt: e.title,
+    caption: [`“${esc(e.title)}”`, esc(e.date || ""), esc(e.creator || ""), source, license].filter(Boolean).join(" · "),
+    link: `<a href="${esc(e.page)}" target="_blank" rel="noopener">Open on Yesterdays ↗</a>`,
+  };
 }
 
 function galleryBackButton() {
@@ -871,7 +925,8 @@ function wireEvents() {
     if (e.target.matches("input, textarea")) return;
     // Escape backs out one level: enlarged gallery photo → full screen → panel.
     if (e.key === "Escape") {
-      if (state.galleryItem != null && state.selected?.photos[state.photoIndex]?.kind === "gallery") galleryBack();
+      const kind = state.selected?.photos[state.photoIndex]?.kind;
+      if (state.galleryItem != null && (kind === "gallery" || kind === "yesterdays")) galleryBack();
       else if (state.photoExpanded) setPhotoExpanded(false);
       else closeDetail();
     }

@@ -32,6 +32,7 @@ The detail panel reads photos from these tags, in this order:
 | `wikimedia_commons=Category:…` | A "Gallery" tab: thumbnails of the category's files (up to 50). Click one to enlarge it; the **Gallery** button on the photo, or Esc, goes back to the grid |
 | `mapillary=*`, `mapillary:N=*` | Mapillary image ID (the project's required tag). Uses the Graph API thumbnail if a client token is set in [`js/config.js`](js/config.js); otherwise falls back to Mapillary's embedded viewer. |
 | `panoramax=*`, `panoramax:N=*` | Panoramax picture, via the federated `api.panoramax.xyz` catalogue |
+| *(no tag: matched by the data pipeline)* | A "Yesterdays" tab: historical photos and postcards from [Yesterdays](https://yesterdays.today), e.g. the Newberry Library's Route 66 postcards and John Margolies' Roadside America photos. Each is credited with its date, source and licence (or a link to the rights statement at the source) and links to its Yesterdays page. Images are Yesterdays' ~500 px versions. |
 | `image=*`, `image:N=*` | Commons file/category, Mapillary and Panoramax URLs are recognised; direct `.jpg/.png/.webp` links are shown inline; anything else becomes an "open original" link |
 
 Commons comes first because those photos are usually chosen shots, often at
@@ -126,6 +127,23 @@ both, runs the tests, and commits only if the data changed. Safety rails:
 - if the weekly route refresh fails, the committed line is kept
 - Mapillary photo info is looked up once per photo and carried forward, since photos don't move
 - if the place lookup or Wikidata is unavailable, the previous run's wiki links and labels are kept
+- if Yesterdays is unavailable, each sign keeps its previous Yesterdays photos
+
+### Yesterdays matches
+
+[Yesterdays](https://yesterdays.today) is an archive of old photos and
+postcards that volunteers georeference. `scripts/lib/yesterdays.mjs` links a
+sign to an image automatically when either:
+
+- the image's Wikidata subjects include an item the sign links to
+  (`wikidata=*`, `subject:wikidata=*`, or the wiki-linked place next to it), or
+- the image is georeferenced within 150 m of the sign **and** its title names
+  the sign (they share at least two distinctive words, or the only one).
+  Position alone isn't enough, because a block of old motels has many photos.
+
+More signs will match as postcards get georeferenced or tagged with Wikidata
+on Yesterdays. A run makes a few dozen API requests, spaced a second apart.
+Every sign's "Open in" row also links to Yesterdays' map at that spot.
 
 The 400 m corridor matters because outside Route 66 many `luminous=yes`
 signs are ordinary backlit boxes, not neon.
@@ -186,6 +204,8 @@ Each sign's infobox has icon buttons:
 Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)
 (ODbL). Basemap © [CARTO](https://carto.com/attributions). Photos belong to
 their Mapillary, Panoramax and Wikimedia Commons contributors under their
-respective licences. Editor logos link to their projects: the OpenStreetMap and
+respective licences. Historical photos are found through
+[Yesterdays](https://yesterdays.today) and belong to the institutions credited
+with each one. Editor logos link to their projects: the OpenStreetMap and
 Rapid marks are from Rapid's icon set (ISC), the iD logo from iD (ISC), and the
 JOSM logo from JOSM (GPL).

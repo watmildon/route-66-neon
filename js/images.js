@@ -18,7 +18,22 @@ import { splitValues } from "./signs.js";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const DIRECT_IMAGE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
 
-const KIND_ORDER = { commons: 0, gallery: 1, mapillary: 2, panoramax: 3, url: 4, link: 5 };
+const KIND_ORDER = { commons: 0, gallery: 1, mapillary: 2, panoramax: 3, yesterdays: 4, url: 5, link: 6 };
+
+/**
+ * Historical photos matched on yesterdays.today by the data pipeline
+ * (properties.yesterdays), shown as one gallery tab.
+ */
+export function yesterdaysGallery(entries) {
+  const items = (entries || []).filter((e) => Number.isInteger(e?.id) && /^https:\/\//.test(e.thumb || "") && /^https:\/\//.test(e.page || ""));
+  if (!items.length) return null;
+  return { kind: "yesterdays", id: "yesterdays", key: "yesterdays", label: "Yesterdays", items, credit: "Yesterdays" };
+}
+
+/** Yesterdays' map, centred on a spot (MapLibre's #zoom/lat/lon hash). */
+export function yesterdaysMapUrl([lon, lat], zoom = 17) {
+  return `https://yesterdays.today/map/#${zoom}/${Number(lat).toFixed(5)}/${Number(lon).toFixed(5)}`;
+}
 
 export function mapillary(id, key) {
   return {
@@ -218,8 +233,12 @@ export function classifyImageValue(value, key) {
   return { kind: "link", id: url.href, key, label: "Link", href: url.href, credit: host };
 }
 
-/** All photos for a sign, ordered Commons → Commons gallery → Mapillary → Panoramax → URLs → links. */
-export function imageSources(tags = {}) {
+/**
+ * All photos for a sign, ordered Commons → Commons gallery → Mapillary →
+ * Panoramax → Yesterdays → URLs → links. `yesterdays` is the sign's
+ * properties.yesterdays from the data file.
+ */
+export function imageSources(tags = {}, { yesterdays = [] } = {}) {
   const out = [];
   const seen = new Set();
   const add = (src) => {
@@ -248,6 +267,8 @@ export function imageSources(tags = {}) {
       for (const v of values) add(classifyImageValue(v, key));
     }
   }
+
+  add(yesterdaysGallery(yesterdays));
 
   // Stable sort: by kind, keeping tag-key order within a kind.
   return out
