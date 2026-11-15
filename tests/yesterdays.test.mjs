@@ -25,6 +25,9 @@ test("titleMatches accepts the sign's own photos and rejects its neighbours", ()
   assert.ok(!titleMatches(["Turquoise Tepee"], "Hull's Motel, Tom Reed Photo"));
   assert.ok(!titleMatches(["El Rancho Motel Vacancy"], "Thunderbird Inn"));
   assert.ok(!titleMatches(["Rod's Steak House"], "El Coronado Motel"));
+  // Words run together still name the sign (Yesterdays image 65949).
+  assert.ok(titleMatches(["Blue Swallow Motel 100% Refrigerated Air"], "Blueswallow Motel sign, Tucumcari, New Mexico"));
+  assert.ok(!titleMatches(["Blue Swallow Motel"], "Bluebird Motel, Swallowtail Road"));
   // A generic word alone is not a match.
   assert.ok(!titleMatches(["Motel"], "Hull's Motel"));
   assert.ok(!titleMatches([], "Anything"));

@@ -30,32 +30,45 @@ const STOP = new Set(
   ).split(" ")
 );
 
+const fold = (s) =>
+  String(s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/['’]s\b/g, "");
+
+/** Distinctive lower-case words of a name or title, in order (accents and possessive 's dropped). */
+function wordList(s) {
+  return fold(s)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !STOP.has(w));
+}
+
 /** Distinctive lower-case words of a name or title (accents and possessive 's dropped). */
 export function nameTokens(s) {
-  return new Set(
-    String(s ?? "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/['’]s\b/g, "")
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length >= 3 && !STOP.has(w))
-  );
+  return new Set(wordList(s));
 }
 
 /**
  * True when the title names one of the sign's names: they share at least two
  * distinctive words, or every distinctive word when either side has only one.
+ * Two or more of the name's words run together also count ("Blueswallow
+ * Motel sign" names "Blue Swallow").
  */
 export function titleMatches(names, title) {
   const t = nameTokens(title);
   if (!t.size) return false;
+  const joined = fold(title).replace(/[^a-z0-9]/g, "");
   for (const name of names) {
-    const a = nameTokens(name);
+    const words = wordList(name);
+    const a = new Set(words);
     if (!a.size) continue;
     let shared = 0;
     for (const w of a) if (t.has(w)) shared++;
     if (shared >= Math.min(2, a.size, t.size)) return true;
+    for (let i = 0; i + 1 < words.length; i++) {
+      if (joined.includes(words[i] + words[i + 1])) return true;
+    }
   }
   return false;
 }
