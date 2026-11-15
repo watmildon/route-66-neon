@@ -1,5 +1,13 @@
 import { aimPano, withCenter } from "./aim.js";
-import { commons, hasPhoto, imageSources } from "./images.js";
+import {
+  commons,
+  commonsCategoryUrl,
+  commonsInfoUrl,
+  hasPhoto,
+  imageSources,
+  parseCategoryFiles,
+  parseCommonsInfo,
+} from "./images.js";
 import { neonColour, signTitle } from "./signs.js";
 import { MAPILLARY_CLIENT_TOKEN } from "./config.js";
 
@@ -18,6 +26,8 @@ const state = {
   selected: null,
   photoIndex: 0,
   photoExpanded: false, // survives stepping between signs
+  galleryItem: null, // index of the enlarged photo in a Commons gallery, or null for the grid
+  galleryFocus: null, // thumbnail to focus when returning to the grid
   renderToken: 0,
 };
 
@@ -294,7 +304,10 @@ function select(key, { fly = true, animate = true } = {}) {
   if (!s) return;
   const changed = state.selected?.key !== key;
   state.selected = s;
-  if (changed) state.photoIndex = 0;
+  if (changed) {
+    state.photoIndex = 0;
+    state.galleryItem = null;
+  }
 
   map.setFilter("sign-selected", ["==", ["get", "key"], key]);
   document.body.classList.add("detail-open");
@@ -417,13 +430,13 @@ function renderDetail(s) {
         <span class="photo-top-nav" id="photo-top-nav"></span>
         <button type="button" class="icon-btn" data-action="shrink" aria-label="Shrink photo" title="Shrink (Esc)">${shrinkIcon()}</button>
       </div>
+      <div class="photo-tabs" id="photo-tabs" role="group" aria-label="Photo source"></div>
       <div class="photo-stage">
         <div class="photo" id="photo"></div>
         <button type="button" class="photo-expand" data-action="expand" aria-label="Expand photo" title="Expand photo">${expandIcon()}</button>
       </div>
       <div class="photo-foot">
         <div class="photo-meta" id="photo-meta"></div>
-        <div class="photo-tabs" id="photo-tabs"></div>
       </div>
     </div>
     ${s.wiki.length ? `<section class="wiki" aria-label="About"><h3 class="section-label">About</h3>${s.wiki.map(wikiCard).join("")}</section>` : ""}
@@ -586,6 +599,7 @@ async function renderPhoto(s) {
   }
 
   if (p.kind === "mapillary") return renderMapillary(s, p, token, box, meta);
+  if (p.kind === "gallery") return renderGallery(s, p, token, box, meta);
 
   const original = originalLink(p.href);
   meta.innerHTML = `${esc(p.credit)} · ${original}`;
@@ -598,9 +612,114 @@ async function renderPhoto(s) {
   showImage(box, p.src, s.title, () => {
     box.innerHTML = `<div class="msg">Couldn't load this photo.<br>${original}</div>`;
   });
+
+  if (p.kind === "commons") {
+    // Fill in author and licence once Commons answers; keep the generic credit if it doesn't.
+    commonsJson(commonsInfoUrl(p.id))
+      .then(parseCommonsInfo)
+      .then((c) => {
+        if (token === state.renderToken) meta.innerHTML = `${commonsCreditHtml(c)} · ${original}`;
+      })
+      .catch((e) => console.warn("Commons credit lookup failed.", e));
+  }
 }
 
 const originalLink = (href) => `<a href="${esc(href)}" target="_blank" rel="noopener">Open original ↗</a>`;
+
+/** "© Author · Licence · Wikimedia Commons", with the licence linked when Commons gives a URL. */
+function commonsCreditHtml(c) {
+  const free = /public domain|^pd\b|cc0/i.test(c?.license || "");
+  const author = c?.author ? `${free ? "" : "© "}${esc(c.author)}` : "";
+  const license = c?.license
+    ? c.licenseUrl
+      ? `<a href="${esc(c.licenseUrl)}" target="_blank" rel="noopener license">${esc(c.license)}</a>`
+      : esc(c.license)
+    : "";
+  return [author, license, "Wikimedia Commons"].filter(Boolean).join(" · ");
+}
+
+/**
+ * A Commons category: a grid of thumbnails; clicking one enlarges it in the
+ * same frame with a "Gallery" button to go back.
+ */
+async function renderGallery(s, p, token, box, meta) {
+  const catLink = `<a href="${esc(p.href)}" target="_blank" rel="noopener">${esc(p.id)}</a>`;
+  box.innerHTML = `<div class="spinner" role="status" aria-label="Loading gallery"></div>`;
+  meta.textContent = "";
+  let g;
+  try {
+    g = parseCategoryFiles(await commonsJson(commonsCategoryUrl(p.id)));
+  } catch (e) {
+    console.warn("Commons gallery lookup failed.", e);
+    if (token === state.renderToken) {
+      box.innerHTML = `<div class="msg">Couldn't load this Commons gallery.<br>${originalLink(p.href)}</div>`;
+    }
+    return;
+  }
+  if (token !== state.renderToken) return;
+
+  if (!g.items.length) {
+    box.innerHTML = `<div class="msg">No photos in this Commons category yet.<br>${originalLink(p.href)}</div>`;
+    meta.innerHTML = `Wikimedia Commons · ${catLink}`;
+    return;
+  }
+
+  const count = `${g.items.length}${g.more ? "+" : ""}`;
+  const item = state.galleryItem == null ? null : g.items[state.galleryItem];
+  if (!item) {
+    state.galleryItem = null;
+    box.innerHTML = `<ul class="gallery" aria-label="Photos in ${esc(p.id)}">${g.items
+      .map(
+        (it, n) => `<li><button type="button" class="gallery-thumb" data-gallery="${n}" title="${esc(it.file.id)}">
+          <img src="${esc(it.thumb)}" alt="${esc(it.file.id.replace(/\.[a-z0-9]+$/i, ""))}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+        </button></li>`
+      )
+      .join("")}</ul>`;
+    meta.innerHTML = `${count} photos in ${catLink} on Wikimedia Commons${g.more ? ` (first ${g.items.length} shown)` : ""}`;
+    if (state.galleryFocus != null) {
+      box.querySelector(`[data-gallery="${state.galleryFocus}"]`)?.focus({ preventScroll: false });
+      state.galleryFocus = null;
+    }
+    return;
+  }
+
+  const original = originalLink(item.file.href);
+  showImage(box, item.file.src, s.title, () => {
+    box.innerHTML = `<div class="msg">Couldn't load this photo.<br>${original}</div>`;
+    box.append(galleryBackButton());
+  });
+  const back = galleryBackButton();
+  box.append(back);
+  back.focus({ preventScroll: true });
+  meta.innerHTML = [commonsCreditHtml(item.credit), `${state.galleryItem + 1} of ${count}`, original].join(" · ");
+}
+
+function galleryBackButton() {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "gallery-back";
+  b.dataset.action = "gallery-back";
+  b.title = "Back to the gallery (Esc)";
+  b.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Gallery`;
+  return b;
+}
+
+function galleryBack() {
+  state.galleryFocus = state.galleryItem;
+  state.galleryItem = null;
+  if (state.selected) renderPhoto(state.selected);
+}
+
+// Commons API answers, shared by credits and galleries. Failures aren't cached.
+const commonsCache = new Map();
+function commonsJson(url) {
+  if (!commonsCache.has(url)) {
+    const p = fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))));
+    p.catch(() => commonsCache.delete(url));
+    commonsCache.set(url, p);
+  }
+  return commonsCache.get(url);
+}
 const fmtDay = (iso) =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -705,11 +824,18 @@ function wireEvents() {
     if (e.target.closest("[data-action=expand]")) return setPhotoExpanded(true);
     if (e.target.closest("[data-action=shrink]")) return setPhotoExpanded(false);
     if (e.target.closest("[data-action=josm]") && state.selected) return openInJosm(state.selected);
+    if (e.target.closest("[data-action=gallery-back]")) return galleryBack();
+    const thumb = e.target.closest("button[data-gallery]");
+    if (thumb && state.selected) {
+      state.galleryItem = Number(thumb.dataset.gallery);
+      return renderPhoto(state.selected);
+    }
     const stepBtn = e.target.closest("button[data-step]");
     if (stepBtn) return step(Number(stepBtn.dataset.step));
     const tab = e.target.closest("button[data-photo]");
     if (tab && state.selected) {
       state.photoIndex = Number(tab.dataset.photo);
+      state.galleryItem = null;
       renderPhotoTabs(state.selected);
       renderPhoto(state.selected);
     }
@@ -741,7 +867,12 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input, textarea")) return;
-    if (e.key === "Escape") state.photoExpanded ? setPhotoExpanded(false) : closeDetail();
+    // Escape backs out one level: enlarged gallery photo → full screen → panel.
+    if (e.key === "Escape") {
+      if (state.galleryItem != null && state.selected?.photos[state.photoIndex]?.kind === "gallery") galleryBack();
+      else if (state.photoExpanded) setPhotoExpanded(false);
+      else closeDetail();
+    }
     else if (e.key === "ArrowLeft" && state.selected) step(-1);
     else if (e.key === "ArrowRight" && state.selected) step(1);
   });

@@ -1,20 +1,24 @@
 // Turn a sign's tags into an ordered list of photos the detail panel can show.
 // Pure functions (no DOM, no network) so they run under `node --test` too.
 //
-// Recognised tags, in display order:
+// Recognised tags:
+//   wikimedia_commons=*, …:*=*          "File:…" names, and "Category:…" names,
+//                                       which become a thumbnail gallery
 //   mapillary=*, mapillary:*=*          Mapillary image IDs (the project's required tag)
 //   panoramax=*, panoramax:*=*          Panoramax picture UUIDs
-//   wikimedia_commons=*, …:*=*          "File:…" names (Category: values are skipped)
 //   image=*, image:*=*                  URLs: Commons/Mapillary/Panoramax links are
 //                                       recognised, direct image files are shown,
 //                                       anything else becomes a plain link.
+//
+// Display order puts Commons first: those photos are usually chosen shots,
+// often at night with the neon lit, where street-level imagery is daytime.
 
 import { splitValues } from "./signs.js";
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const DIRECT_IMAGE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
 
-const KIND_ORDER = { mapillary: 0, panoramax: 1, commons: 2, url: 3, link: 4 };
+const KIND_ORDER = { commons: 0, gallery: 1, mapillary: 2, panoramax: 3, url: 4, link: 5 };
 
 export function mapillary(id, key) {
   return {
@@ -56,13 +60,126 @@ export function commons(fileName, key, width = 1024) {
   };
 }
 
+/** A Commons category, shown as a gallery of its files. */
+export function commonsGallery(categoryName, key) {
+  const name = categoryName.replace(/^Category:/i, "").replace(/_/g, " ").trim();
+  const enc = encodeURIComponent(name.replace(/ /g, "_"));
+  return {
+    kind: "gallery",
+    id: name,
+    key,
+    label: "Gallery",
+    href: `https://commons.wikimedia.org/wiki/Category:${enc}`,
+    credit: "Wikimedia Commons",
+  };
+}
+
+// ---------------------------------------------------------- Commons API --
+
+const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
+const CREDIT_FIELDS = "Artist|LicenseShortName|LicenseUrl|AttributionRequired";
+export const GALLERY_LIMIT = 50;
+
+function apiUrl(params) {
+  // origin=* makes the API answer anonymous cross-origin requests.
+  const q = new URLSearchParams({ action: "query", format: "json", formatversion: "2", origin: "*", ...params });
+  return `${COMMONS_API}?${q}`;
+}
+
+/** API URL for one file's author and licence. */
+export function commonsInfoUrl(fileName) {
+  const name = fileName.replace(/^(File|Image):/i, "").trim();
+  return apiUrl({ titles: `File:${name}`, prop: "imageinfo", iiprop: "extmetadata", iiextmetadatafilter: CREDIT_FIELDS });
+}
+
+/** API URL for a category's files, with thumbnails and credits. */
+export function commonsCategoryUrl(categoryName, limit = GALLERY_LIMIT) {
+  const name = categoryName.replace(/^Category:/i, "").trim();
+  return apiUrl({
+    generator: "categorymembers",
+    gcmtitle: `Category:${name}`,
+    gcmtype: "file",
+    gcmlimit: String(limit),
+    prop: "imageinfo",
+    iiprop: "url|extmetadata",
+    iiurlwidth: "320",
+    iiextmetadatafilter: CREDIT_FIELDS,
+  });
+}
+
+/** Plain text from the small HTML fragments Commons puts in its metadata. */
+export function htmlToText(html) {
+  const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  return String(html ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+      if (e[0] !== "#") return named[e.toLowerCase()] ?? m;
+      const n = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Only http(s) links survive; protocol-relative ones get https. */
+function safeHttpUrl(u) {
+  const v = String(u ?? "").trim();
+  if (!v) return null;
+  try {
+    const url = new URL(v.startsWith("//") ? `https:${v}` : v);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Author and licence from an imageinfo extmetadata object.
+ * Returns { author, license, licenseUrl }; any of them may be null.
+ */
+export function commonsCredit(extmetadata = {}) {
+  const val = (k) => extmetadata?.[k]?.value;
+  let author = htmlToText(val("Artist")) || null;
+  if (author && author.length > 120) author = `${author.slice(0, 117).trimEnd()}…`;
+  return {
+    author,
+    license: htmlToText(val("LicenseShortName")) || null,
+    licenseUrl: safeHttpUrl(val("LicenseUrl")),
+  };
+}
+
+/** Credit for a single-file API answer (commonsInfoUrl). */
+export function parseCommonsInfo(json) {
+  const page = json?.query?.pages?.[0];
+  return commonsCredit(page?.imageinfo?.[0]?.extmetadata);
+}
+
+/**
+ * Files from a category API answer (commonsCategoryUrl), sorted by title.
+ * Each item: { file: commons source, thumb, credit }. `more` is true when the
+ * category has more files than were fetched.
+ */
+export function parseCategoryFiles(json) {
+  const pages = json?.query?.pages || [];
+  const items = pages
+    .filter((p) => p.ns === 6 && p.imageinfo?.[0])
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .map((p) => {
+      const info = p.imageinfo[0];
+      const file = commons(p.title, "gallery");
+      return { file, thumb: safeHttpUrl(info.thumburl) || file.src.replace(/width=\d+/, "width=320"), credit: commonsCredit(info.extmetadata) };
+    });
+  return { items, more: Boolean(json?.continue) };
+}
+
 /** Classify a single image=* value. Returns a source object or null. */
 export function classifyImageValue(value, key) {
   const v = String(value ?? "").trim();
   if (!v) return null;
 
-  // Bare "File:Foo.jpg" occasionally lands in image=*.
+  // Bare "File:Foo.jpg" / "Category:Foo" occasionally land in image=*.
   if (/^(File|Image):/i.test(v)) return commons(v, key);
+  if (/^Category:/i.test(v)) return commonsGallery(v, key);
 
   // Only http(s) URLs may become links or <img> sources — never javascript: etc.
   let url;
@@ -77,6 +194,8 @@ export function classifyImageValue(value, key) {
   if (host === "commons.wikimedia.org" || host.endsWith(".wikipedia.org")) {
     const m = /\/wiki\/(File:.+)$/i.exec(url.pathname);
     if (m) return commons(safeDecode(m[1]), key);
+    const c = /\/wiki\/(Category:.+)$/i.exec(url.pathname);
+    if (c) return commonsGallery(safeDecode(c[1]), key);
   }
 
   if (host.endsWith("mapillary.com")) {
@@ -99,7 +218,7 @@ export function classifyImageValue(value, key) {
   return { kind: "link", id: url.href, key, label: "Link", href: url.href, credit: host };
 }
 
-/** All photos for a sign, ordered Mapillary → Panoramax → Commons → URLs → links. */
+/** All photos for a sign, ordered Commons → Commons gallery → Mapillary → Panoramax → URLs → links. */
 export function imageSources(tags = {}) {
   const out = [];
   const seen = new Set();
@@ -121,7 +240,10 @@ export function imageSources(tags = {}) {
         if (m) add(panoramax(m[0], key));
       }
     } else if (/^wikimedia_commons(:\d+)?$/.test(key)) {
-      for (const v of values) if (/^(File|Image):/i.test(v)) add(commons(v, key));
+      for (const v of values) {
+        if (/^(File|Image):/i.test(v)) add(commons(v, key));
+        else if (/^Category:/i.test(v)) add(commonsGallery(v, key));
+      }
     } else if (/^image(:\d+)?$/.test(key)) {
       for (const v of values) add(classifyImageValue(v, key));
     }

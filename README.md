@@ -28,14 +28,19 @@ The detail panel reads photos from these tags, in this order:
 
 | Tag | Shown as |
 |---|---|
+| `wikimedia_commons=File:…` | Wikimedia Commons image, credited with its author and licence (looked up from the Commons API when shown) |
+| `wikimedia_commons=Category:…` | A "Gallery" tab: thumbnails of the category's files (up to 50). Click one to enlarge it; the **Gallery** button on the photo, or Esc, goes back to the grid |
 | `mapillary=*`, `mapillary:N=*` | Mapillary image ID (the project's required tag). Uses the Graph API thumbnail if a client token is set in [`js/config.js`](js/config.js); otherwise falls back to Mapillary's embedded viewer. |
 | `panoramax=*`, `panoramax:N=*` | Panoramax picture, via the federated `api.panoramax.xyz` catalogue |
-| `wikimedia_commons=File:…` | Wikimedia Commons image (`Category:` values are skipped) |
-| `image=*`, `image:N=*` | Commons/Mapillary/Panoramax URLs are recognised; direct `.jpg/.png/.webp` links are shown inline; anything else becomes an "open original" link |
+| `image=*`, `image:N=*` | Commons file/category, Mapillary and Panoramax URLs are recognised; direct `.jpg/.png/.webp` links are shown inline; anything else becomes an "open original" link |
+
+Commons comes first because those photos are usually chosen shots, often at
+night with the neon lit; street-level imagery is mostly daytime.
 
 Multiple values (`a;b`) and several sources per sign all appear as tabs. The
 expand button (bottom-left of the photo) opens it full-screen. You can keep
-stepping through signs while it's expanded; Esc shrinks it.
+stepping through signs while it's expanded; Esc backs out one step at a time
+(enlarged gallery photo → gallery, then full-screen → panel).
 
 ### Aiming 360° photos at the sign
 
