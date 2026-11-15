@@ -138,17 +138,25 @@ both, runs the tests, and commits only if the data changed. Safety rails:
 ### Yesterdays matches
 
 [Yesterdays](https://yesterdays.today) is an archive of old photos and
-postcards that volunteers georeference. `scripts/lib/yesterdays.mjs` links a
-sign to an image automatically when either:
+postcards that volunteers georeference and tag with "subjects" (Wikidata
+items). `scripts/lib/yesterdays.mjs` links a sign to an image automatically
+when any of these hold:
 
-- the image's Wikidata subjects include an item the sign links to
-  (`wikidata=*`, `subject:wikidata=*`, or the wiki-linked place next to it), or
+- one of the image's subjects is an item the sign links to (`wikidata=*`,
+  `subject:wikidata=*`, or the wiki-linked place next to it);
+- one of its subjects names the sign and Wikidata puts that subject within
+  250 m of it. This works for photos that aren't georeferenced, and for signs
+  with no Wikidata link in OSM;
 - the image is georeferenced within 150 m of the sign **and** its title names
-  the sign (they share at least two distinctive words, or the only one).
-  Position alone isn't enough, because a block of old motels has many photos.
+  the sign. Position alone isn't enough, because a block of old motels has
+  many photos.
 
-More signs will match as postcards get georeferenced or tagged with Wikidata
-on Yesterdays. A run makes a few dozen API requests, spaced a second apart.
+"Names the sign" means sharing at least two distinctive words, or the only
+one, ignoring words like "motel" or "cafe"; words run together count too
+("Blueswallow"). So on Yesterdays, either georeferencing a photo or giving it
+the motel's Wikidata subject brings it onto this map at the next data run. A
+run makes a few dozen Yesterdays requests, spaced a second apart, plus a
+Wikidata lookup for the subjects whose names match a sign.
 Every sign's "Open in" row also links to Yesterdays' map at that spot.
 
 The 400 m corridor matters because outside Route 66 many `luminous=yes`

@@ -27,7 +27,7 @@ import { isNeonSign, SIGN_TYPES } from "../js/signs.js";
 import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
 import { lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
 import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
-import { enrichWikiLinks, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
+import { enrichWikiLinks, fetchCoordinates, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
 import * as yesterdays from "./lib/yesterdays.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -196,9 +196,10 @@ async function attachWiki(features, existing) {
 
 /**
  * Attach properties.yesterdays = [{ id, title, thumb, page, date, creator,
- * source, collection, license, license_url, camera }]: historical photos and
- * postcards on yesterdays.today matched by Wikidata subject or by a nearby
- * georeference whose title names the sign (see scripts/lib/yesterdays.mjs).
+ * source, collection, license, license_url, original, camera }]: historical
+ * photos and postcards on yesterdays.today matched by Wikidata subject (the
+ * sign's own items, or a subject located at the sign that names it) or by a
+ * nearby georeference whose title names the sign (see scripts/lib/yesterdays.mjs).
  * When a lookup fails, the sign keeps the previous run's photos.
  */
 async function attachYesterdays(features, existing, bbox) {
@@ -214,12 +215,27 @@ async function attachYesterdays(features, existing, bbox) {
     console.warn(`Yesterdays georeferences unavailable (${e.message}); keeping previous matches.`);
   }
 
+  // Subjects located at a sign: only those whose name names some sign are
+  // worth a Wikidata coordinate lookup.
+  let subjects = [], subjectCoords = new Map(), subjectsOk = true;
+  try {
+    const all = await yesterdays.fetchSubjects();
+    subjects = yesterdays.subjectsNamingSigns(all, features.map((f) => yesterdays.signNames(f.properties)));
+    subjectCoords = await fetchCoordinates(subjects.map((s) => s.qid));
+    console.log(`Yesterdays: ${all.length} subjects; ${subjects.length} name a sign, ${subjectCoords.size} of those have coordinates.`);
+  } catch (e) {
+    subjectsOk = false;
+    console.warn(`Yesterdays subjects unavailable (${e.message}); keeping previous matches.`);
+  }
+
   const bySubject = new Map(); // qid → ids, or null when the lookup failed
   const wanted = new Map(); // sign key → { ids, incomplete }
   for (const f of features) {
     const ids = new Set();
-    let incomplete = !georefs;
-    for (const q of yesterdays.signQids(f.properties)) {
+    let incomplete = !georefs || !subjectsOk;
+    const names = yesterdays.signNames(f.properties);
+    const located = yesterdays.matchSubjects(f.geometry.coordinates, names, subjects, subjectCoords);
+    for (const q of new Set([...yesterdays.signQids(f.properties), ...located])) {
       if (!bySubject.has(q)) {
         try {
           bySubject.set(q, await yesterdays.fetchSubjectImageIds(q));
@@ -232,7 +248,6 @@ async function attachYesterdays(features, existing, bbox) {
       for (const id of bySubject.get(q) || []) ids.add(id);
     }
     if (georefs) {
-      const names = yesterdays.signNames(f.properties);
       for (const id of yesterdays.matchGeoreferences(f.geometry.coordinates, names, georefs)) ids.add(id);
     }
     wanted.set(key(f.properties), { ids, incomplete });

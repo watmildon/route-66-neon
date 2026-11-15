@@ -1,10 +1,13 @@
 // Link signs to historical photos and postcards on Yesterdays
 // (https://yesterdays.today), a crowd-georeferenced archive of old images.
 //
-// Two automatic matches, both at build time so visitors never call the API:
+// Three automatic matches, all at build time so visitors never call the API:
 //   1. Subject: images whose Wikidata subjects include an item the sign links
 //      to (wikidata=*, subject:wikidata=*, or the wiki-linked place next to it).
-//   2. Georeference: images georeferenced within MATCH_RADIUS_M of the sign
+//   2. Located subject: a Yesterdays subject whose name names the sign and
+//      whose Wikidata coordinates are within SUBJECT_RADIUS_M of it. Catches
+//      tagged photos (georeferenced or not) for signs with no Wikidata link.
+//   3. Georeference: images georeferenced within MATCH_RADIUS_M of the sign
 //      whose title names it ("Roy's Motel sign" for a sign reading "Roy's").
 //      Position alone isn't enough: a block of old motels has many photos.
 //
@@ -16,6 +19,9 @@ import { userAgent } from "./sources.mjs";
 export const API = "https://yesterdays.today/api/v2";
 export const SITE = "https://yesterdays.today";
 export const MATCH_RADIUS_M = 150;
+// Wikidata coordinates for a motel or diner are often the middle of the lot,
+// or a geocoded address, so allow a little more than for camera positions.
+export const SUBJECT_RADIUS_M = 250;
 const SPACING_MS = 1000;
 
 // Words too common in sign text and photo titles to identify a place.
@@ -97,6 +103,25 @@ export function matchGeoreferences(coord, names, georefs, radiusM = MATCH_RADIUS
     if (titleMatches(names, g.properties?.image_title)) ids.add(g.properties.image_id);
   }
   return [...ids];
+}
+
+/** Subjects (from fetchSubjects) whose name names at least one of the given signs' names. */
+export function subjectsNamingSigns(subjects, namesPerSign) {
+  return subjects.filter((s) => namesPerSign.some((names) => titleMatches(names, s.title) || titleMatches(names, s.wikidataTitle)));
+}
+
+/**
+ * QIDs of subjects that name the sign and sit within the radius of it.
+ * `coords` maps QID → [lon, lat] (from Wikidata).
+ */
+export function matchSubjects(coord, names, subjects, coords, radiusM = SUBJECT_RADIUS_M) {
+  const out = [];
+  for (const s of subjects) {
+    const c = coords.get(s.qid);
+    if (!c || distanceM(coord, c) > radiusM) continue;
+    if (titleMatches(names, s.title) || titleMatches(names, s.wikidataTitle)) out.push(s.qid);
+  }
+  return out;
 }
 
 /** A readable date from an EDTF value: "[1926..1969]" → "1926–1969", "195X" → "1950s". */
@@ -195,6 +220,14 @@ export function fetchGeoreferences([w, s, e, n]) {
 export async function fetchSubjectImageIds(qid) {
   const results = await getAll(`${API}/images/?subject=${encodeURIComponent(qid)}&page_size=100`);
   return results.filter((r) => Number.isInteger(r.id) && !r.duplicate_of).map((r) => r.id);
+}
+
+/** Every subject that has a Wikidata item: { qid, title, wikidataTitle, count }. */
+export async function fetchSubjects() {
+  const results = await getAll(`${API}/subjects/?page_size=100`);
+  return results
+    .filter((s) => /^Q\d+$/.test(s.wikidata?.wikidata_id || "") && (s.image_count ?? 1) > 0)
+    .map((s) => ({ qid: s.wikidata.wikidata_id, title: s.title || "", wikidataTitle: s.wikidata.title || "", count: s.image_count ?? null }));
 }
 
 /** One image's full record (licence, dates, georeferences). */

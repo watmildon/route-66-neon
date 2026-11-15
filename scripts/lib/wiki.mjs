@@ -126,6 +126,20 @@ async function wikidataApi(params) {
   return json.entities || {};
 }
 
+/** Map of QID → [lon, lat] from each item's coordinate location (P625). Items without one are left out. */
+export async function fetchCoordinates(qids) {
+  const out = new Map();
+  const list = [...new Set(qids)].filter((q) => /^Q\d+$/.test(q));
+  for (let i = 0; i < list.length; i += 50) {
+    const entities = await wikidataApi({ action: "wbgetentities", ids: list.slice(i, i + 50).join("|"), props: "claims" });
+    for (const [qid, e] of Object.entries(entities)) {
+      const v = e.claims?.P625?.[0]?.mainsnak?.datavalue?.value;
+      if (Number.isFinite(v?.longitude) && Number.isFinite(v?.latitude)) out.set(qid, [v.longitude, v.latitude]);
+    }
+  }
+  return out;
+}
+
 function summarise(entity) {
   const p18 = entity.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
   const enwiki = entity.sitelinks?.enwiki?.title;

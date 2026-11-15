@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   formatEdtf,
   matchGeoreferences,
+  matchSubjects,
   nameTokens,
   signNames,
   signQids,
+  subjectsNamingSigns,
   titleMatches,
   toEntry,
 } from "../scripts/lib/yesterdays.mjs";
@@ -52,6 +54,24 @@ test("matchGeoreferences needs both nearness and a matching title", () => {
     g(3, "Amboy Crater", -115.7434, 34.5587), // near, not named
   ];
   assert.deepEqual(matchGeoreferences(sign, ["Roy's Vacancy Motel Cafe"], georefs), [1]);
+});
+
+test("subjects match a sign when they name it and Wikidata puts them at it", () => {
+  const sign = [-103.71641, 35.17191]; // Blue Swallow sign, Tucumcari
+  const names = ["Blue Swallow Motel 100% Refrigerated Air"];
+  const subjects = [
+    { qid: "Q4929937", title: "Blue Swallow Motel", wikidataTitle: "Blue Swallow Motel" },
+    { qid: "Q1", title: "Tucumcari", wikidataTitle: "Tucumcari" }, // the town: near, but doesn't name the sign
+    { qid: "Q2", title: "Blue Swallow Motel", wikidataTitle: "Blue Swallow Motel" }, // namesake far away
+    { qid: "Q3", title: "Blue Swallow Diner", wikidataTitle: "" }, // no coordinates
+  ];
+  const coords = new Map([
+    ["Q4929937", [-103.7163, 35.1722]], // ~40 m
+    ["Q1", [-103.7166, 35.1719]],
+    ["Q2", [-90.0, 38.0]],
+  ]);
+  assert.deepEqual(matchSubjects(sign, names, subjects, coords), ["Q4929937"]);
+  assert.deepEqual(subjectsNamingSigns(subjects, [names, ["Kimo"]]).map((s) => s.qid), ["Q4929937", "Q2", "Q3"]);
 });
 
 test("formatEdtf turns EDTF into readable dates", () => {
