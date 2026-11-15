@@ -61,9 +61,12 @@ panorama's centre points. 360° cameras are normally mounted with their lenses
 facing the sides of the car (it keeps the stitch seams off the road and the
 camera out of the wind), so the centre points sideways. `js/aim.js` therefore
 assumes the centre faces 90° left of travel (`DEFAULT_LENS_OFFSET = -90`).
-That's verified for NTHP's imagery against signs in Tulsa and Albuquerque,
-and pinned in `LENS_OFFSET_BY_CREATOR`. A rig mounted the other way (+90°) or
-facing forward (0°) gets an entry in that table. To calibrate one, open a
+That's verified for NTHP's June 2026 drive against signs in Tulsa and
+Albuquerque, and pinned in `LENS_OFFSET_BY_CREATOR`. A rig mounted the other
+way (+90°) or facing forward (0°) gets an entry in that table, and an entry
+can be a list of date ranges when an uploader's rig changed between drives:
+NTHP's April 2025 photos (Williams AZ) face right of travel, so they're +90°
+before 2026. To calibrate one, open a
 panorama in the embed with `x=0.5` and see which way it faces relative to the
 car. With a client token configured, the page instead uses Mapillary's own
 `computed_compass_angle`, which needs no correction.

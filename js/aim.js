@@ -28,20 +28,39 @@ export const DEFAULT_LENS_OFFSET = -90;
  * forward-facing lens, +90° for right-facing). Calibrate one by opening a
  * panorama in Mapillary's embed with x=0.5 and noting which way it faces
  * relative to the car's travel.
+ *
+ * A value is either one offset, or a list of { before?, offset } for an
+ * uploader whose rig changed between drives: the first entry whose `before`
+ * (an ISO date) is later than the photo's capture date wins, and the last
+ * entry (no `before`) covers newer photos and photos with no date.
  */
 export const LENS_OFFSET_BY_CREATOR = {
-  // nthp_gis: the National Trust for Historic Preservation's Route 66 drive,
-  // the imagery this mapping project uses. Verified against the Meadow Gold
-  // signs in Tulsa and three signs in Albuquerque. Pinned so a change to the
-  // default can't break the project's own photos.
-  "681336961438940": -90,
+  // nthp_gis: the National Trust for Historic Preservation's Route 66 drives,
+  // the imagery this mapping project uses. Pinned so a change to the default
+  // can't break the project's own photos.
+  //  - April 2025 drive: lens faced right of travel. Verified on the
+  //    Turquoise Tepee and Rod's Steak House signs in Williams AZ.
+  //  - June 2026 drive: lens faces left. Verified against the Meadow Gold
+  //    signs in Tulsa and three signs in Albuquerque.
+  // The cut-off only needs to fall between the two drives.
+  "681336961438940": [{ before: "2026-01-01", offset: 90 }, { offset: -90 }],
 };
+
+/** Degrees from compass_angle to the image centre for this photo's uploader and date. */
+export function lensOffset(view) {
+  const entry = LENS_OFFSET_BY_CREATOR[String(view?.creator)];
+  if (typeof entry === "number") return entry;
+  if (!Array.isArray(entry)) return DEFAULT_LENS_OFFSET;
+  const when = typeof view?.captured === "string" ? view.captured : null;
+  const hit = entry.find((e) => e.before && when && when < e.before) || entry.find((e) => !e.before);
+  return typeof hit?.offset === "number" ? hit.offset : DEFAULT_LENS_OFFSET;
+}
 
 /** Heading of a panorama's image centre, or null if unknown. */
 export function centreHeading(view) {
   if (typeof view?.computedCompass === "number") return view.computedCompass;
   if (typeof view?.compass !== "number") return null;
-  return view.compass + (LENS_OFFSET_BY_CREATOR[String(view.creator)] ?? DEFAULT_LENS_OFFSET);
+  return view.compass + lensOffset(view);
 }
 
 const R = 6_371_008.8;

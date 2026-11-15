@@ -50,6 +50,31 @@ test("NTHP panoramas centre 90° left of their compass_angle", () => {
   assert.equal(centreHeading({}), null);
 });
 
+test("NTHP's April 2025 drive centres 90° right of compass_angle; the 2026 drive 90° left", () => {
+  // Verified in Mapillary's embed: photo 1735457703759519 (compass 70.5°,
+  // Williams AZ, 2025-04-17) only shows the Turquoise Tepee sign with the
+  // right-facing offset; the left-facing one showed the motel across the street.
+  near(centreHeading({ compass: 70.5, creator: NTHP, captured: "2025-04-17" }), 160.5, 1e-9);
+  near(centreHeading({ compass: 90.6, creator: NTHP, captured: "2026-06-19" }), 0.6, 1e-9);
+  const tepee = aimPano(
+    { lon: -112.1876031, lat: 35.2507535, compass: 70.5, creator: NTHP, captured: "2025-04-17", pano: true },
+    [-112.1877084, 35.25079],
+    { advertising: "sign" }
+  );
+  near(tepee.x, 0.868, 0.002);
+});
+
+test("a dated table entry accepts plain numbers and falls back to the undated entry", () => {
+  LENS_OFFSET_BY_CREATOR["changed-rig"] = [{ before: "2024-01-01", offset: 0 }, { offset: 90 }];
+  try {
+    assert.equal(centreHeading({ compass: 10, creator: "changed-rig", captured: "2023-05-01" }), 10);
+    assert.equal(centreHeading({ compass: 10, creator: "changed-rig", captured: "2024-05-01" }), 100);
+    assert.equal(centreHeading({ compass: 10, creator: "changed-rig" }), 100);
+  } finally {
+    delete LENS_OFFSET_BY_CREATOR["changed-rig"];
+  }
+});
+
 test("other uploaders get the side-mounted default unless the table says otherwise", () => {
   near(centreHeading({ compass: 90.6, creator: "someone-else" }), 90.6 + DEFAULT_LENS_OFFSET, 1e-9);
   near(centreHeading({ compass: 90.6 }), 90.6 + DEFAULT_LENS_OFFSET, 1e-9);
