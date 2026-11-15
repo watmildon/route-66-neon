@@ -15,6 +15,12 @@ Route 66, built from OpenStreetMap data mapped during the OSM US
   MO 366 and K-66. See [`scripts/lib/alignments.mjs`](scripts/lib/alignments.mjs).
 - Click a sign (or pick it from the list) to see its photo, key tags, and
   links to view or edit it in OSM.
+- The list is grouped by state; click a state's heading to fold it (remembered
+  in this browser). Rows mark only what's uncommon: **W** for a Wikipedia or
+  Wikidata link, a sparkle for a Wikimedia Commons photo (often a night shot),
+  and the map-pin icon for historical photos on Yesterdays. The chips under the
+  search box show only signs with those, on the list and the map, and the
+  ◀ ▶ stepper follows the filter.
 - **◀ Toward L.A. / Toward Chicago ▶** (or the ← → keys) steps sign by sign
   along the drive. Left is west, as on the map.
 - Each sign has a shareable URL such as `…/#node/8813401256`.
@@ -208,4 +214,6 @@ respective licences. Historical photos are found through
 [Yesterdays](https://yesterdays.today) and belong to the institutions credited
 with each one. Editor logos link to their projects: the OpenStreetMap and
 Rapid marks are from Rapid's icon set (ISC), the iD logo from iD (ISC), and the
-JOSM logo from JOSM (GPL).
+JOSM logo from JOSM (GPL). The Yesterdays icon is
+[Font Awesome Free](https://fontawesome.com)'s "map-location-dot"
+([CC BY 4.0](https://fontawesome.com/license/free)).

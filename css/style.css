@@ -112,8 +112,51 @@ code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radiu
 #sign-list button:hover, #sign-list button:focus-visible { background: var(--hover); outline: none; }
 #sign-list button[aria-current="true"] { background: rgba(255, 43, 214, 0.14); }
 #sign-list .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#sign-list .cam { color: var(--muted); flex: none; }
 #sign-list .empty { padding: 10px; color: var(--muted); }
+
+/* Small marks for what's uncommon about a sign (list rows and chips). */
+.ico { flex: none; display: grid; place-items: center; width: 16px; height: 16px; color: var(--muted); }
+.ico svg { width: 14px; height: 14px; display: block; }
+#sign-list button[aria-current="true"] .ico,
+#sign-list button[aria-current="true"] .wbadge { color: var(--text); }
+
+/* Filter chips under the search box. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 12px 4px; }
+.chips:empty { display: none; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip:hover { background: var(--hover); }
+.chip:focus-visible { outline: 2px solid var(--pink); outline-offset: 1px; }
+.chip[aria-pressed="true"] { border-color: var(--pink); background: rgba(255, 43, 214, 0.15); }
+.chip[aria-pressed="true"] .ico, .chip[aria-pressed="true"] .wbadge { color: var(--text); }
+
+/* Collapsible state headings in the list. */
+#sign-list .state-head { position: sticky; top: -4px; z-index: 1; background: var(--panel-solid); }
+#sign-list .state-head button {
+  gap: 6px;
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#sign-list .state-head button:hover, #sign-list .state-head button:focus-visible { color: var(--text); }
+#sign-list .state-head .n { margin-left: auto; font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+#sign-list .state-head .caret { flex: none; transition: transform 0.15s ease; }
+#sign-list .state-head button[aria-expanded="true"] .caret { transform: rotate(90deg); }
 
 .dot {
   flex: none;

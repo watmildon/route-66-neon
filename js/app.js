@@ -3,13 +3,13 @@ import {
   commons,
   commonsCategoryUrl,
   commonsInfoUrl,
-  hasPhoto,
   imageSources,
   parseCategoryFiles,
   parseCommonsInfo,
   yesterdaysMapUrl,
 } from "./images.js";
 import { neonColour, signTitle } from "./signs.js";
+import { ROUTE_STATES, routeState } from "./states.js";
 import { MAPILLARY_CLIENT_TOKEN } from "./config.js";
 
 const BASEMAP = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
@@ -30,7 +30,34 @@ const state = {
   galleryItem: null, // index of the enlarged photo in a Commons gallery, or null for the grid
   galleryFocus: null, // thumbnail to focus when returning to the grid
   renderToken: 0,
+  query: "", // the text filter
+  chips: new Set(), // active filter chips (ids from CHIPS); all must match
+  collapsed: loadCollapsed(), // state headings folded shut in the list
 };
+
+// Filter chips under the search box. Each narrows the list and the map.
+const CHIPS = [
+  { id: "commons", label: "Commons", title: "Only signs with a Wikimedia Commons photo (often a night shot)", test: (s) => s.hasCommons },
+  { id: "yesterdays", label: "Yesterdays", title: "Only signs with historical photos on Yesterdays", test: (s) => s.hasYesterdays },
+  { id: "wiki", label: "Wikipedia", title: "Only signs with a Wikipedia or Wikidata link", test: (s) => s.wiki.length > 0 },
+];
+
+const COLLAPSED_KEY = "route66neon.collapsedStates";
+function loadCollapsed() {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]");
+    return new Set(Array.isArray(v) ? v.filter((x) => ROUTE_STATES.includes(x)) : []);
+  } catch {
+    return new Set();
+  }
+}
+function saveCollapsed() {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...state.collapsed]));
+  } catch {
+    /* private mode etc.: folding still works for this visit */
+  }
+}
 
 // ------------------------------------------------------------------- map --
 
@@ -109,7 +136,9 @@ function init(signsFc, routeFc, alignFc) {
         color: neonColour(tags),
         title: signTitle(tags),
         photos,
-        hasPhoto: hasPhoto(photos),
+        hasCommons: photos.some((p) => p.kind === "commons" || p.kind === "gallery"),
+        hasYesterdays: photos.some((p) => p.kind === "yesterdays"),
+        state: routeState(f.geometry.coordinates, tags),
         search: [tags.inscription, tags.name, tags.brand, tags.operator, tags["addr:city"], tags.description, ...wiki.map((w) => w.label)]
           .filter(Boolean)
           .join(" ")
@@ -117,13 +146,15 @@ function init(signsFc, routeFc, alignFc) {
       };
     })
     // Route 66 runs almost monotonically east → west, so longitude is a good
-    // stand-in for "order along the drive".
-    .sort((a, b) => b.coord[0] - a.coord[0]);
+    // stand-in for "order along the drive". State first keeps each state's
+    // signs together under its heading even where a border wiggles.
+    .sort((a, b) => ROUTE_STATES.indexOf(a.state) - ROUTE_STATES.indexOf(b.state) || b.coord[0] - a.coord[0]);
   for (const s of state.signs) state.byKey.set(s.key, s);
   state.visible = state.signs;
 
   addLayers(routeFc, alignFc);
   addInfoControl(signsFc.osm_base);
+  renderChips();
   renderList();
   wireEvents();
 
@@ -267,27 +298,72 @@ function renderList() {
     list.innerHTML = `<li class="empty">No signs match.</li>`;
     return;
   }
-  list.innerHTML = state.visible
-    .map(
-      (s) => `<li><button type="button" data-key="${esc(s.key)}" ${s.key === state.selected?.key ? 'aria-current="true"' : ""}>
+  const perState = {};
+  for (const s of state.visible) perState[s.state] = (perState[s.state] || 0) + 1;
+  const rows = [];
+  let current = null;
+  for (const s of state.visible) {
+    if (s.state !== current) {
+      current = s.state;
+      const open = !state.collapsed.has(current);
+      rows.push(`<li class="state-head"><button type="button" data-state="${esc(current)}" aria-expanded="${open}">
+        <svg class="caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>${esc(current)}</span><span class="n">${perState[current]}</span>
+      </button></li>`);
+    }
+    if (state.collapsed.has(current)) continue;
+    rows.push(`<li><button type="button" data-key="${esc(s.key)}" ${s.key === state.selected?.key ? 'aria-current="true"' : ""}>
         <span class="dot" style="--c:${s.color}"></span>
         <span class="t">${esc(s.title)}</span>
-        ${s.wiki.length ? `<span class="wbadge" title="Has a Wikipedia or Wikidata link" aria-label="Has a Wikipedia or Wikidata link">W</span>` : ""}
-        ${s.hasPhoto ? `<span class="cam" title="Has a photo" aria-label="Has a photo">${cameraIcon()}</span>` : ""}
-      </button></li>`
-    )
-    .join("");
+        ${signBadges(s)}
+      </button></li>`);
+  }
+  list.innerHTML = rows.join("");
 }
 
-function applyFilter(text) {
-  const q = text.trim().toLowerCase();
-  state.visible = q ? state.signs.filter((s) => s.search.includes(q)) : state.signs;
+// The list only marks what's uncommon: almost every sign has a street-level
+// photo, so a camera on every row would say nothing.
+const BADGE = {
+  wiki: `<span class="wbadge" role="img" title="Has a Wikipedia or Wikidata link" aria-label="Has a Wikipedia or Wikidata link">W</span>`,
+  commons: () => `<span class="ico" role="img" title="Has a Wikimedia Commons photo" aria-label="Has a Wikimedia Commons photo">${SPARKLE_ICON}</span>`,
+  yesterdays: () => `<span class="ico" role="img" title="Has historical photos on Yesterdays" aria-label="Has historical photos on Yesterdays">${YESTERDAYS_ICON}</span>`,
+};
+function signBadges(s) {
+  return [s.wiki.length ? BADGE.wiki : "", s.hasCommons ? BADGE.commons() : "", s.hasYesterdays ? BADGE.yesterdays() : ""].join("");
+}
+
+function renderChips() {
+  const el = $("#chips");
+  if (!el) return;
+  const icon = { commons: SPARKLE_ICON, yesterdays: YESTERDAYS_ICON };
+  el.innerHTML = CHIPS.map((c) => {
+    const n = state.signs.filter(c.test).length;
+    const mark = c.id === "wiki" ? `<span class="wbadge" aria-hidden="true">W</span>` : `<span class="ico" aria-hidden="true">${icon[c.id]}</span>`;
+    return `<button type="button" class="chip" data-chip="${c.id}" aria-pressed="${state.chips.has(c.id)}" title="${esc(c.title)}">${mark}${esc(c.label)} <span class="n">${n}</span></button>`;
+  }).join("");
+}
+
+function applyFilter() {
+  const q = state.query.trim().toLowerCase();
+  const tests = CHIPS.filter((c) => state.chips.has(c.id)).map((c) => c.test);
+  const active = q || tests.length;
+  state.visible = active
+    ? state.signs.filter((s) => (!q || s.search.includes(q)) && tests.every((t) => t(s)))
+    : state.signs;
   const keys = state.visible.map((s) => s.key);
-  const filter = q ? ["in", ["get", "key"], ["literal", keys]] : null;
+  const filter = active ? ["in", ["get", "key"], ["literal", keys]] : null;
   map.setFilter("sign-halo", filter);
   map.setFilter("sign-core", filter);
   renderList();
   if (state.selected) renderStepper(state.selected);
+}
+
+function toggleState(name) {
+  if (state.collapsed.has(name)) state.collapsed.delete(name);
+  else state.collapsed.add(name);
+  saveCollapsed();
+  renderList();
+  $(`#sign-list button[data-state="${CSS.escape(name)}"]`)?.focus({ preventScroll: true });
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -313,6 +389,13 @@ function select(key, { fly = true, animate = true } = {}) {
   map.setFilter("sign-selected", ["==", ["get", "key"], key]);
   document.body.classList.add("detail-open");
   renderDetail(s);
+
+  // Unfold the sign's state so it can be highlighted in the list.
+  if (state.collapsed.has(s.state)) {
+    state.collapsed.delete(s.state);
+    saveCollapsed();
+    renderList();
+  }
 
   for (const b of document.querySelectorAll("#sign-list button")) {
     if (b.dataset.key === key) {
@@ -448,7 +531,7 @@ function renderDetail(s) {
       <a class="tool-btn" href="${idUrl}" target="_blank" rel="noopener" title="Edit in iD" aria-label="Edit in iD"><img class="invert" src="img/editors/id.png" alt=""></a>
       <a class="tool-btn" href="${rapidUrl(s)}" target="_blank" rel="noopener" title="Edit in Rapid" aria-label="Edit in Rapid">${RAPID_LOGO}</a>
       <button class="tool-btn" type="button" data-action="josm" title="Edit in JOSM (needs JOSM running with Remote Control on)" aria-label="Edit in JOSM"><img src="img/editors/josm.png" alt=""></button>
-      <a class="tool-btn" href="${esc(yesterdaysMapUrl(s.coord))}" target="_blank" rel="noopener" title="Old photos of this spot on Yesterdays" aria-label="Old photos of this spot on Yesterdays">${HISTORY_ICON}</a>
+      <a class="tool-btn" href="${esc(yesterdaysMapUrl(s.coord))}" target="_blank" rel="noopener" title="Old photos of this spot on Yesterdays" aria-label="Old photos of this spot on Yesterdays">${YESTERDAYS_ICON}</a>
     </div>
     <p class="josm-status" id="josm-status" role="status" aria-live="polite"></p>
     <details class="all-tags">
@@ -475,8 +558,13 @@ function renderDetail(s) {
 const OSM_LOGO = `<svg viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" d="M4,5 L11.813,25.5 L4,46 L11.813,66.531 L4,87.031 L8.813,88.875 L34.844,62.812 L39.531,63.531 L45.219,57.844 C41.87,53.964 39.339,49.332 37.969,44.219 L40.656,42.062 C40.199,39.939 39.938,37.726 39.938,35.469 C39.938,24.191 45.95,14.277 54.938,8.781 L45.031,5 L24.5,12.813 L4,5 z M71.094,9.313 C56.734,9.313 45.094,20.953 45.094,35.312 C45.094,49.672 56.734,61.312 71.094,61.312 C85.453,61.312 97.094,49.672 97.094,35.312 C97.094,20.953 85.453,9.313 71.094,9.313 z M91.156,59.469 C85.735,63.987 78.776,66.719 71.188,66.719 C68.93,66.719 66.717,66.458 64.594,66 L62.438,68.656 C57.582,67.355 53.131,65.067 49.375,61.969 L43.5,67.844 L44.219,72.188 L22.406,94.031 L24.5,94.844 L45.031,87.031 L65.531,94.844 L86.031,87.031 L93.844,66.531 L91.156,59.469 z"/></svg>`;
 const RAPID_LOGO = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M1.998,5.76 L3.619,5.76 C3.824,5.76 3.989,5.926 3.989,6.13 L3.989,6.144 C3.989,6.349 3.824,6.514 3.619,6.514 L1.998,6.514 C1.794,6.514 1.628,6.349 1.628,6.144 L1.628,6.13 C1.628,5.926 1.794,5.76 1.998,5.76 z"/><path d="M4.971,5.76 L6.592,5.76 C6.796,5.76 6.962,5.926 6.962,6.13 L6.962,6.144 C6.962,6.349 6.796,6.514 6.592,6.514 L4.971,6.514 C4.766,6.514 4.601,6.349 4.601,6.144 L4.601,6.13 C4.601,5.926 4.766,5.76 4.971,5.76 z"/><path d="M7.958,5.76 L9.579,5.76 C9.783,5.76 9.949,5.926 9.949,6.13 L9.949,6.144 C9.949,6.349 9.783,6.514 9.579,6.514 L7.958,6.514 C7.753,6.514 7.588,6.349 7.588,6.144 L7.588,6.13 C7.588,5.926 7.753,5.76 7.958,5.76 z"/><path d="M13.206,2.987 C11.556,2.133 9.608,2.446 8.327,3.641 L1.017,3.641 C0.746,3.641 0.519,3.869 0.519,4.139 C0.519,4.409 0.746,4.637 1.017,4.637 L11.129,4.637 C11.428,4.623 11.727,4.665 12.026,4.779 C12.623,5.016 13.081,5.508 13.275,6.121 C13.468,6.734 13.375,7.4 13.021,7.937 C12.466,8.776 11.385,9.117 10.447,8.747 C9.922,8.534 9.499,8.127 9.266,7.61 L2.894,7.61 C2.624,7.61 2.396,7.837 2.396,8.107 C2.396,8.378 2.624,8.605 2.894,8.605 L7.972,8.605 C8.242,8.605 8.47,8.833 8.47,9.103 C8.47,9.373 8.242,9.601 7.972,9.601 L5.084,9.601 C4.814,9.601 4.587,9.828 4.587,10.099 C4.587,10.369 4.814,10.597 5.084,10.597 L7.232,10.597 C7.502,10.597 7.73,10.824 7.73,11.094 C7.73,11.365 7.517,11.578 7.261,11.592 L6.734,11.592 C6.464,11.592 6.237,11.82 6.237,12.09 C6.237,12.36 6.464,12.588 6.734,12.588 L7.446,12.588 C7.517,12.915 7.574,13.171 7.616,13.342 C7.645,13.456 7.773,13.527 7.886,13.484 C8.967,13.071 13.761,11.109 14.998,8.733 C15.522,7.728 15.624,6.556 15.283,5.475 C14.941,4.395 14.184,3.494 13.178,2.973 z"/></svg>`;
 
-// A clock turning back: historical photos (Yesterdays). Generic, not their logo.
-const HISTORY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>`;
+// The Yesterdays mark: Font Awesome Free 7.3.1 "map-location-dot", chosen with
+// the Yesterdays team. License CC BY 4.0, https://fontawesome.com/license/free
+// Copyright 2026 Fonticons, Inc.
+const YESTERDAYS_ICON = `<svg viewBox="0 0 640 640" aria-hidden="true" fill="currentColor"><path d="M576 112C576 100.9 570.3 90.6 560.8 84.8C551.3 79 539.6 78.4 529.7 83.4L413.5 141.5L234.1 81.6C226 78.9 217.3 79.5 209.7 83.3L81.7 147.3C70.8 152.8 64 163.9 64 176L64 528C64 539.1 69.7 549.4 79.2 555.2C88.7 561 100.4 561.6 110.3 556.6L226.4 498.5L399.7 556.3C395.4 549.9 391.2 543.2 387.1 536.4C376.1 518.1 365.2 497.1 357.1 474.6L255.9 440.9L255.9 156.4L383.9 199.1L383.9 298.4C414.9 262.6 460.9 240 511.9 240C534.5 240 556.1 244.4 575.9 252.5L576 112zM512 288C445.7 288 392 340.8 392 405.9C392 474.8 456.1 556.3 490.6 595.2C502.2 608.2 521.9 608.2 533.5 595.2C568 556.3 632.1 474.8 632.1 405.9C632.1 340.8 578.4 288 512.1 288zM472 408C472 385.9 489.9 368 512 368C534.1 368 552 385.9 552 408C552 430.1 534.1 448 512 448C489.9 448 472 430.1 472 408z"/></svg>`;
+
+// Four-point sparkle: a Wikimedia Commons photo, usually a night shot.
+const SPARKLE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2C12.6 7.6 16.4 11.4 22 12C16.4 12.6 12.6 16.4 12 22C11.4 16.4 7.6 12.6 2 12C7.6 11.4 11.4 7.6 12 2Z"/></svg>`;
 
 const OSM_TYPE_LETTER = { node: "n", way: "w", relation: "r" };
 
@@ -865,11 +953,26 @@ function mapillaryInfo(id) {
 
 function wireEvents() {
   $("#sign-list").addEventListener("click", (e) => {
+    const head = e.target.closest("button[data-state]");
+    if (head) return toggleState(head.dataset.state);
     const b = e.target.closest("button[data-key]");
     if (b) select(b.dataset.key);
   });
 
-  $("#filter").addEventListener("input", (e) => applyFilter(e.target.value));
+  $("#filter").addEventListener("input", (e) => {
+    state.query = e.target.value;
+    applyFilter();
+  });
+
+  $("#chips").addEventListener("click", (e) => {
+    const chip = e.target.closest("button[data-chip]");
+    if (!chip) return;
+    const id = chip.dataset.chip;
+    if (state.chips.has(id)) state.chips.delete(id);
+    else state.chips.add(id);
+    renderChips();
+    applyFilter();
+  });
 
   $("#sidebar-toggle").addEventListener("click", () =>
     setSidebarCollapsed(!$("#sidebar").classList.contains("collapsed"))
@@ -947,10 +1050,6 @@ function routeTip(p) {
       ${p.name ? `<span class="sub">${esc(p.label)}</span>` : ""}
       <span class="note">${esc(p.note)}</span>
     </div>`;
-}
-
-function cameraIcon() {
-  return `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M4 8h3l2-2h6l2 2h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
 }
 
 function expandIcon() {
