@@ -1,4 +1,5 @@
 import { aimPano, withCenter } from "./aim.js";
+import { JOSM_MIN_ZOOM, josmLoadParams, latLonText, viewUrls } from "./editors.js";
 import {
   commons,
   commonsCategoryUrl,
@@ -71,8 +72,14 @@ const map = new maplibregl.Map({
 });
 map.touchZoomRotate.disableRotation();
 const ctrlCorner = isPhone() ? "bottom-right" : "top-right";
+// "Open this view in…" control (see that section below). Declared here because
+// addControl runs its onAdd straight away.
+let viewBtn = null;
+let viewMenu = null;
+const PENCIL_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), ctrlCorner);
 map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: false } }), ctrlCorner);
+map.addControl({ onAdd: viewMenuButton, onRemove() {} }, ctrlCorner);
 
 // The ⓘ control carries the credits plus the data date, so it's added once the
 // data has loaded (customAttribution is fixed at construction).
@@ -563,6 +570,9 @@ const RAPID_LOGO = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="currentCol
 // Copyright 2026 Fonticons, Inc.
 const YESTERDAYS_ICON = `<svg viewBox="0 0 640 640" aria-hidden="true" fill="currentColor"><path d="M576 112C576 100.9 570.3 90.6 560.8 84.8C551.3 79 539.6 78.4 529.7 83.4L413.5 141.5L234.1 81.6C226 78.9 217.3 79.5 209.7 83.3L81.7 147.3C70.8 152.8 64 163.9 64 176L64 528C64 539.1 69.7 549.4 79.2 555.2C88.7 561 100.4 561.6 110.3 556.6L226.4 498.5L399.7 556.3C395.4 549.9 391.2 543.2 387.1 536.4C376.1 518.1 365.2 497.1 357.1 474.6L255.9 440.9L255.9 156.4L383.9 199.1L383.9 298.4C414.9 262.6 460.9 240 511.9 240C534.5 240 556.1 244.4 575.9 252.5L576 112zM512 288C445.7 288 392 340.8 392 405.9C392 474.8 456.1 556.3 490.6 595.2C502.2 608.2 521.9 608.2 533.5 595.2C568 556.3 632.1 474.8 632.1 405.9C632.1 340.8 578.4 288 512.1 288zM472 408C472 385.9 489.9 368 512 368C534.1 368 552 385.9 552 408C552 430.1 534.1 448 512 448C489.9 448 472 430.1 472 408z"/></svg>`;
 
+// Two overlapping sheets: copy to clipboard.
+const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+
 // Four-point sparkle: a Wikimedia Commons photo, usually a night shot.
 const SPARKLE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2C12.6 7.6 16.4 11.4 22 12C16.4 12.6 12.6 16.4 12 22C11.4 16.4 7.6 12.6 2 12C7.6 11.4 11.4 7.6 12 2Z"/></svg>`;
 
@@ -574,31 +584,150 @@ function rapidUrl(s) {
   return `https://rapideditor.org/edit#map=19.00/${lat.toFixed(6)}/${lon.toFixed(6)}&id=${OSM_TYPE_LETTER[s.type]}${s.id}`;
 }
 
+const JOSM_NO_ANSWER =
+  "JOSM didn't answer. Start JOSM and turn on <b>Remote Control</b> (Preferences → Remote Control).";
+
 /**
- * Hand the sign to a running JOSM through Remote Control: download ~150 m
- * around it (so the motel or diner it belongs to comes along) and select it.
- * `no-cors` because we only need to know JOSM answered, not read the reply.
+ * Ask a running JOSM to download an area through Remote Control. Resolves
+ * true if JOSM answered. `no-cors` because we only need to know it answered,
+ * not read the reply.
+ */
+async function sendToJosm(query) {
+  try {
+    await fetch(`http://127.0.0.1:8111/load_and_zoom?${query}`, { mode: "no-cors", cache: "no-store" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hand the sign to JOSM: download ~150 m around it (so the motel or diner it
+ * belongs to comes along) and select it.
  */
 async function openInJosm(s) {
   const status = $("#josm-status");
   const [lon, lat] = s.coord;
   const d = 0.0015;
-  const params = new URLSearchParams({
-    left: (lon - d).toFixed(6),
-    right: (lon + d).toFixed(6),
-    bottom: (lat - d).toFixed(6),
-    top: (lat + d).toFixed(6),
-    select: `${OSM_TYPE_LETTER[s.type]}${s.id}`,
-  });
+  const box = { west: lon - d, south: lat - d, east: lon + d, north: lat + d };
   status.textContent = "Sending to JOSM…";
-  try {
-    await fetch(`http://127.0.0.1:8111/load_and_zoom?${params}`, { mode: "no-cors", cache: "no-store" });
-    if (state.selected === s) status.textContent = "Sent to JOSM.";
-  } catch {
-    if (state.selected === s) {
-      status.innerHTML = "JOSM didn't answer. Start JOSM and turn on <b>Remote Control</b> (Preferences → Remote Control).";
+  const ok = await sendToJosm(josmLoadParams(box, `${OSM_TYPE_LETTER[s.type]}${s.id}`));
+  if (state.selected !== s) return;
+  if (ok) status.textContent = "Sent to JOSM.";
+  else status.innerHTML = JOSM_NO_ANSWER;
+}
+
+// ------------------------------------------------ open this view in… --
+
+// A map control that opens whatever area is on screen in the same tools as a
+// sign's "Open in" row. The menu lives on <body>, not inside the control, so
+// it can sit above the detail panel that hugs the control column.
+
+function viewMenuButton() {
+  const box = document.createElement("div");
+  box.className = "maplibregl-ctrl maplibregl-ctrl-group";
+  viewBtn = document.createElement("button");
+  viewBtn.type = "button";
+  viewBtn.className = "view-menu-btn";
+  viewBtn.title = "Open this view in an editor";
+  viewBtn.setAttribute("aria-label", viewBtn.title);
+  viewBtn.setAttribute("aria-haspopup", "true");
+  viewBtn.setAttribute("aria-expanded", "false");
+  viewBtn.setAttribute("aria-controls", "view-menu");
+  viewBtn.innerHTML = PENCIL_ICON;
+  viewBtn.addEventListener("click", () => setViewMenuOpen(viewMenu?.hidden ?? true));
+  box.append(viewBtn);
+  return box;
+}
+
+/** Built on first open: the logos it uses are declared further down the module. */
+function buildViewMenu() {
+  viewMenu = document.createElement("div");
+  viewMenu.id = "view-menu";
+  viewMenu.className = "view-menu";
+  viewMenu.hidden = true;
+  viewMenu.setAttribute("aria-label", "Open this view in");
+  const link = (key, icon, label) =>
+    `<a class="view-item" data-link="${key}" target="_blank" rel="noopener">${icon}<span>${label}</span></a>`;
+  viewMenu.innerHTML = `
+    <p class="view-menu-head">Open this view in</p>
+    ${link("osm", OSM_LOGO, "OpenStreetMap")}
+    ${link("id", `<img class="invert" src="img/editors/id.png" alt="">`, "iD")}
+    ${link("rapid", RAPID_LOGO, "Rapid")}
+    <button class="view-item" type="button" data-action="josm-view"><img src="img/editors/josm.png" alt=""><span>JOSM</span></button>
+    ${link("yesterdays", YESTERDAYS_ICON, "Yesterdays")}
+    <hr class="view-sep">
+    <button class="view-item" type="button" data-action="copy-latlon" title="Copy the map centre as “lat, lon”">${COPY_ICON}<span>Copy lat/lon</span></button>
+    <p class="josm-status" id="view-status" role="status" aria-live="polite"></p>`;
+  document.body.append(viewMenu);
+
+  viewMenu.addEventListener("click", async (e) => {
+    if (e.target.closest("a[data-link]")) return setViewMenuOpen(false);
+    const status = $("#view-status");
+    if (e.target.closest("[data-action=copy-latlon]")) {
+      const c = map.getCenter();
+      const text = latLonText({ lat: c.lat, lon: c.lng });
+      try {
+        await navigator.clipboard.writeText(text);
+        status.textContent = `Copied ${text}`;
+      } catch {
+        // No clipboard access (e.g. plain http on another host): show it to copy by hand.
+        status.textContent = text;
+      }
+      return;
     }
+    const josm = e.target.closest("[data-action=josm-view]");
+    if (!josm || josm.disabled) return;
+    const b = map.getBounds();
+    status.textContent = "Sending to JOSM…";
+    const ok = await sendToJosm(
+      josmLoadParams({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() })
+    );
+    if (ok) status.textContent = "Sent to JOSM.";
+    else status.innerHTML = JOSM_NO_ANSWER;
+  });
+  // Close on any press outside the menu and its button (including the map).
+  document.addEventListener("pointerdown", (e) => {
+    if (!viewMenu.hidden && !viewMenu.contains(e.target) && !viewBtn.contains(e.target)) setViewMenuOpen(false);
+  });
+  map.on("moveend", () => viewMenu.hidden || updateViewMenu());
+  window.addEventListener("resize", () => setViewMenuOpen(false));
+}
+
+/** Point the links at the current view. */
+function updateViewMenu() {
+  const c = map.getCenter();
+  const zoom = map.getZoom();
+  const urls = viewUrls({ lat: c.lat, lon: c.lng, zoom });
+  for (const a of viewMenu.querySelectorAll("a[data-link]")) a.href = urls[a.dataset.link];
+  const josm = viewMenu.querySelector("[data-action=josm-view]");
+  josm.disabled = zoom < JOSM_MIN_ZOOM;
+  josm.title = josm.disabled ? "Zoom in further to load this area in JOSM" : "Load this area in JOSM (needs Remote Control on)";
+}
+
+function setViewMenuOpen(open, { focus = true } = {}) {
+  if (!viewMenu) {
+    if (!open) return;
+    buildViewMenu();
   }
+  viewBtn.setAttribute("aria-expanded", String(open));
+  if (!open) {
+    if (!viewMenu.hidden && focus && viewMenu.contains(document.activeElement)) viewBtn.focus();
+    viewMenu.hidden = true;
+    return;
+  }
+  updateViewMenu();
+  $("#view-status").textContent = "";
+  // Beside the button, opening leftward; on phones the controls sit at the
+  // bottom, so the menu grows upward from the button instead.
+  const r = viewBtn.getBoundingClientRect();
+  Object.assign(viewMenu.style, {
+    right: `${window.innerWidth - r.left + 8}px`,
+    top: ctrlCorner.startsWith("top") ? `${r.top}px` : "",
+    bottom: ctrlCorner.startsWith("bottom") ? `${window.innerHeight - r.bottom}px` : "",
+  });
+  viewMenu.hidden = false;
+  viewMenu.querySelector(".view-item")?.focus();
 }
 
 /**
@@ -1026,8 +1155,9 @@ function wireEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input, textarea")) return;
-    // Escape backs out one level: enlarged gallery photo → full screen → panel.
-    if (e.key === "Escape") {
+    // Escape backs out one level: view menu, then enlarged gallery photo → full screen → panel.
+    if (e.key === "Escape" && viewMenu && !viewMenu.hidden) setViewMenuOpen(false);
+    else if (e.key === "Escape") {
       const kind = state.selected?.photos[state.photoIndex]?.kind;
       if (state.galleryItem != null && (kind === "gallery" || kind === "yesterdays")) galleryBack();
       else if (state.photoExpanded) setPhotoExpanded(false);
