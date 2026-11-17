@@ -1,7 +1,7 @@
 // Link signs to historical photos and postcards on Yesterdays
 // (https://yesterdays.today), a crowd-georeferenced archive of old images.
 //
-// Three automatic matches, all at build time so visitors never call the API:
+// Four automatic matches, all at build time so visitors never call the API:
 //   1. Subject: images whose Wikidata subjects include an item the sign links
 //      to (wikidata=*, subject:wikidata=*, or the wiki-linked place next to it).
 //   2. Located subject: a Yesterdays subject whose name names the sign and
@@ -10,10 +10,15 @@
 //   3. Georeference: images georeferenced within MATCH_RADIUS_M of the sign
 //      whose title names it ("Roy's Motel sign" for a sign reading "Roy's").
 //      Position alone isn't enough: a block of old motels has many photos.
+//   4. Aimed neon sign: images with the "neon sign" subject (NEON_SIGN_QID),
+//      georeferenced within AIM_RADIUS_M of the sign with a view direction
+//      within AIM_CONE_DEG of it. Catches untitled photos of signs whose
+//      names are all generic words ("Restaurant"). A photo aimed at a cluster
+//      of signs goes to each of them: fine for a gallery.
 //
 // Requests are spaced about a second apart; a full run is a few dozen.
 
-import { distanceM } from "../../js/aim.js";
+import { bearingDeg, distanceM } from "../../js/aim.js";
 import { userAgent } from "./sources.mjs";
 
 export const API = "https://yesterdays.today/api/v2";
@@ -22,6 +27,13 @@ export const MATCH_RADIUS_M = 150;
 // Wikidata coordinates for a motel or diner are often the middle of the lot,
 // or a geocoded address, so allow a little more than for camera positions.
 export const SUBJECT_RADIUS_M = 250;
+// Wikidata "neon sign": a subject volunteers add to photos of any neon sign.
+export const NEON_SIGN_QID = "Q6006";
+// Close and nearly straight ahead. In a survey of the neon-sign photos, true
+// matches sat 7–19° off the view direction; a neighbouring motel's sign
+// 15 m from the camera sat 59° off.
+export const AIM_RADIUS_M = 60;
+export const AIM_CONE_DEG = 30;
 const SPACING_MS = 1000;
 
 // Words too common in sign text and photo titles to identify a place.
@@ -101,6 +113,25 @@ export function matchGeoreferences(coord, names, georefs, radiusM = MATCH_RADIUS
     const c = g.geometry?.coordinates;
     if (!c || distanceM(coord, c) > radiusM) continue;
     if (titleMatches(names, g.properties?.image_title)) ids.add(g.properties.image_id);
+  }
+  return [...ids];
+}
+
+/**
+ * Ids of georeferenced images among `neonIds` (images with the neon-sign
+ * subject) taken within the radius of the sign and pointed at it: the bearing
+ * to the sign is within coneDeg of the view direction. Georeferences without
+ * a direction don't count.
+ */
+export function matchAimedNeon(coord, neonIds, georefs, radiusM = AIM_RADIUS_M, coneDeg = AIM_CONE_DEG) {
+  const ids = new Set();
+  for (const g of georefs) {
+    const p = g.properties || {};
+    const c = g.geometry?.coordinates;
+    if (!c || !neonIds.has(p.image_id) || !Number.isFinite(p.direction)) continue;
+    if (distanceM(c, coord) > radiusM) continue;
+    const off = Math.abs(((bearingDeg(c, coord) - p.direction + 540) % 360) - 180);
+    if (off <= coneDeg) ids.add(p.image_id);
   }
   return [...ids];
 }

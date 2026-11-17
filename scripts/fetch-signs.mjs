@@ -198,8 +198,9 @@ async function attachWiki(features, existing) {
  * Attach properties.yesterdays = [{ id, title, thumb, page, date, creator,
  * source, collection, license, license_url, original, camera }]: historical
  * photos and postcards on yesterdays.today matched by Wikidata subject (the
- * sign's own items, or a subject located at the sign that names it) or by a
- * nearby georeference whose title names the sign (see scripts/lib/yesterdays.mjs).
+ * sign's own items, or a subject located at the sign that names it), by a
+ * nearby georeference whose title names the sign, or by a "neon sign" photo
+ * taken close by and pointed at it (see scripts/lib/yesterdays.mjs).
  * When a lookup fails, the sign keeps the previous run's photos.
  */
 async function attachYesterdays(features, existing, bbox) {
@@ -232,7 +233,18 @@ async function attachYesterdays(features, existing, bbox) {
   const wanted = new Map(); // sign key → { ids, incomplete }
   for (const f of features) {
     const ids = new Set();
-    let incomplete = !georefs || !subjectsOk;
+  // Images with the generic "neon sign" subject, matched by where they point.
+  let neonIds = null;
+  if (georefs) {
+    try {
+      neonIds = new Set(await yesterdays.fetchSubjectImageIds(yesterdays.NEON_SIGN_QID));
+      console.log(`Yesterdays: ${neonIds.size} images with the neon sign subject.`);
+    } catch (e) {
+      console.warn(`Yesterdays neon sign subject unavailable (${e.message}); keeping previous matches.`);
+    }
+  }
+
+    let incomplete = !georefs || !neonIds || !subjectsOk;
     const names = yesterdays.signNames(f.properties);
     const located = yesterdays.matchSubjects(f.geometry.coordinates, names, subjects, subjectCoords);
     for (const q of new Set([...yesterdays.signQids(f.properties), ...located])) {
@@ -267,6 +279,9 @@ async function attachYesterdays(features, existing, bbox) {
     const { ids, incomplete } = wanted.get(key(f.properties));
     const list = new Map([...ids].map((id) => [id, entries.get(id)]).filter(([, e]) => e));
     if (incomplete) for (const e of previous.get(key(f.properties)) || []) if (!list.has(e.id)) list.set(e.id, e);
+    if (georefs && neonIds) {
+      for (const id of yesterdays.matchAimedNeon(f.geometry.coordinates, neonIds, georefs)) ids.add(id);
+    }
     if (list.size) f.properties.yesterdays = [...list.values()].sort((a, b) => a.id - b.id).map(sortKeys);
   }
   const n = features.filter((f) => f.properties.yesterdays).length;

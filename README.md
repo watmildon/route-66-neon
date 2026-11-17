@@ -149,7 +149,12 @@ when any of these hold:
   with no Wikidata link in OSM;
 - the image is georeferenced within 150 m of the sign **and** its title names
   the sign. Position alone isn't enough, because a block of old motels has
-  many photos.
+  many photos;
+- the image has the "neon sign" subject
+  ([Q6006](https://www.wikidata.org/wiki/Q6006)) and is georeferenced within
+  60 m of the sign, with a view direction within 30° of it. This catches
+  untitled photos, and signs whose words are all generic ("Restaurant"). A
+  photo aimed at a cluster of signs shows up on each of them.
 
 "Names the sign" means sharing at least two distinctive words, or the only
 one, ignoring words like "motel" or "cafe"; words run together count too

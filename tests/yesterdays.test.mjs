@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   formatEdtf,
+  matchAimedNeon,
   matchGeoreferences,
   matchSubjects,
   nameTokens,
@@ -54,6 +55,32 @@ test("matchGeoreferences needs both nearness and a matching title", () => {
     g(3, "Amboy Crater", -115.7434, 34.5587), // near, not named
   ];
   assert.deepEqual(matchGeoreferences(sign, ["Roy's Vacancy Motel Cafe"], georefs), [1]);
+});
+
+test("matchAimedNeon takes neon sign photos taken close by and pointed at the sign", () => {
+  const g = (id, lon, lat, direction) => ({ geometry: { coordinates: [lon, lat] }, properties: { image_id: id, image_title: "Untitled", direction } });
+  // Yesterdays image 69041: untitled, subject "neon sign", 25 m from the
+  // Santa Rosa sign reading only "Restaurant", 16° off the view direction.
+  const restaurant = [-104.667625, 34.9452723];
+  const georefs = [
+    g(69041, -104.667455, 34.945097, 338),
+    g(2, -104.667455, 34.945097, 158), // same spot, facing away
+    g(3, -104.667455, 34.945097, undefined), // no direction
+    g(4, -104.6685, 34.9452723, 90), // pointed at it, but ~95 m away
+    g(5, -104.667455, 34.945097, 338), // aimed right, but not a neon sign photo
+  ];
+  assert.deepEqual(matchAimedNeon(restaurant, new Set([69041, 2, 3, 4]), georefs), [69041]);
+  // Yesterdays image 55507 (Thunderbird Inn, Williams): the El Rancho sign is
+  // 15 m from the camera but 59° off to the side.
+  const elRancho = [-112.1813009, 35.252954];
+  assert.deepEqual(matchAimedNeon(elRancho, new Set([55507]), [g(55507, -112.181151, 35.253006, 188)]), []);
+  // A photo aimed at a cluster of signs goes to each of them.
+  const cam = [-104.0, 35.0];
+  const cluster = [g(7, ...cam, 0)];
+  assert.deepEqual(matchAimedNeon([-104.0, 35.0003], new Set([7]), cluster), [7]); // ~33 m, dead ahead
+  assert.deepEqual(matchAimedNeon([-103.99985, 35.0003], new Set([7]), cluster), [7]); // ~35 m, ~22° right
+  // Bearing wraps through north.
+  assert.deepEqual(matchAimedNeon([-104.0001, 35.0003], new Set([8]), [g(8, ...cam, 350)]), [8]);
 });
 
 test("subjects match a sign when they name it and Wikidata puts them at it", () => {
