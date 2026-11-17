@@ -58,7 +58,9 @@ to the side. So the viewer opens turned toward the sign:
 1. The data pipeline looks up each tagged photo in Mapillary's coverage tiles
    and stores where it was taken, its `compass_angle`, whether it's a
    panorama, its capture date, and its uploader (`properties.mapillary` in
-   `data/signs.geojson`).
+   `data/signs.geojson`). For panoramas it also asks the Graph API for
+   Mapillary's `computed_compass_angle` (stored as `computedCompass`), the
+   heading of the image centre.
 2. The page computes the bearing and tilt from that spot to the sign's OSM
    position ([`js/aim.js`](js/aim.js)). It passes them to Mapillary's viewer
    as the starting view (`x`/`y`), and to the "Open original" link.
@@ -66,8 +68,14 @@ to the side. So the viewer opens turned toward the sign:
 `compass_angle` in the tiles is usually the direction of travel, not where the
 panorama's centre points. 360° cameras are normally mounted with their lenses
 facing the sides of the car (it keeps the stitch seams off the road and the
-camera out of the wind), so the centre points sideways. `js/aim.js` therefore
-assumes the centre faces 90° left of travel (`DEFAULT_LENS_OFFSET = -90`).
+camera out of the wind), so the centre points sideways, and which side can
+change from one sequence to the next. NTHP's June 2026 drive has both, even
+on the same day. `computedCompass` settles it, so the page uses it whenever
+it's there. It agreed with an independent image-motion check on all 123
+photos that check could call (`research/mapillary-heading/`).
+
+Without it (a tiles-only token, or a photo Mapillary hasn't aligned yet),
+`js/aim.js` falls back to a guess and assumes the centre faces 90° left of travel (`DEFAULT_LENS_OFFSET = -90`).
 That's verified for NTHP's June 2026 drive against signs in Tulsa and
 Albuquerque, and pinned in `LENS_OFFSET_BY_CREATOR`. A rig mounted the other
 way (+90°) or facing forward (0°) gets an entry in that table, and an entry
@@ -75,8 +83,8 @@ can be a list of date ranges when an uploader's rig changed between drives:
 NTHP's April 2025 photos (Williams AZ) face right of travel, so they're +90°
 before 2026. To calibrate one, open a
 panorama in the embed with `x=0.5` and see which way it faces relative to the
-car. With a client token configured, the page instead uses Mapillary's own
-`computed_compass_angle`, which needs no correction.
+car. With a client token configured in `js/config.js`, the page also reads
+`computed_compass_angle` live for photos the data doesn't have it for.
 
 Tilt assumes a roof-mounted camera (2.5 m) and guesses the sign's height from
 `height=*`, `location=*` and `support=*`. It's capped at 30°.
@@ -181,7 +189,7 @@ Overpass URL:
 | Name | Default | Purpose |
 |---|---|---|
 | `OVERPASS_PRIMARY_URL` (secret) | — | Private Overpass instance tried before the public mirrors. Never logged. |
-| `MAPILLARY_TOKEN` (secret) | — | Mapillary token for looking up newly tagged photos (a tiles-only key works). Photos already in the data are reused, so it's only needed for new ones. Locally: env var or a gitignored `.mapillary-token` file. |
+| `MAPILLARY_TOKEN` (secret) | — | Mapillary client token for looking up newly tagged photos. Its app needs **Read** access so the Graph API returns `computed_compass_angle`; a tiles-only token still positions photos but leaves 360° ones aimed by guesswork. Photos already in the data are reused, so it's only needed for new ones. Locally: env var or a gitignored `.mapillary-token` file. |
 | `BUFFER_M` | `400` | Corridor width either side of the route line |
 | `DROP_THRESHOLD` | `50` | Max % drop in sign count before the update is refused |
 | `MAX_DATA_LAG_HOURS` | `48` | Max OSM data age accepted |

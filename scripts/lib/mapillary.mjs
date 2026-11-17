@@ -1,10 +1,12 @@
 // Look up where a Mapillary photo was taken, which way it faces, and whether
 // it's a 360° panorama — so the map can turn the viewer toward the sign.
 //
-// Reads Mapillary's public coverage vector tiles (layer `image` at z14) rather
-// than the Graph API, because a tiles-only key is enough for that and the
-// tiles carry everything needed: id, position, compass_angle, is_pano,
-// captured_at.
+// Position, compass_angle, is_pano and captured_at come from Mapillary's
+// public coverage vector tiles (layer `image` at z14), which any token can
+// read. Which way a panorama's image centre faces comes from the Graph API's
+// computed_compass_angle, which needs a token from an app with Read access;
+// with a tiles-only token that step is skipped and js/aim.js falls back to
+// compass_angle plus a per-uploader lens offset.
 //
 // Token resolution, first hit wins: MAPILLARY_TOKEN env (CI secret), then
 // `.mapillary-token` in the repo root (gitignored). The token travels in the
@@ -81,6 +83,46 @@ async function fetchTile(tile, token) {
     views.set(String(p.id), toView(lon, lat, p));
   }
   return views;
+}
+
+const GRAPH_URL = "https://graph.mapillary.com/images";
+const GRAPH_BATCH = 50;
+
+/**
+ * Mapillary's computed_compass_angle for each image id: the heading of the
+ * image centre after Mapillary aligned the photo with its neighbours. For 360°
+ * photos it's what says whether the lens faced left or right of travel, which
+ * compass_angle (usually the direction of travel) can't.
+ * Returns Map id → degrees. Ids Mapillary hasn't aligned yet are left out.
+ * Returns null when the token can't read the Graph API at all.
+ */
+export async function lookupComputedCompass(ids, token) {
+  const found = new Map();
+  let readable = false;
+  for (let i = 0; i < ids.length; i += GRAPH_BATCH) {
+    const batch = ids.slice(i, i + GRAPH_BATCH);
+    const url = `${GRAPH_URL}?image_ids=${batch.join(",")}&fields=id,computed_compass_angle`;
+    let res;
+    try {
+      // Header, not query string: keeps the token out of the URL.
+      res = await fetch(url, { headers: { Authorization: `OAuth ${token}`, "User-Agent": userAgent() } });
+    } catch (e) {
+      console.warn(`Mapillary Graph API: network error (${e.cause?.code || e.name})`);
+      return readable ? found : null;
+    }
+    if (!res.ok) {
+      console.warn(`Mapillary Graph API: HTTP ${res.status}`);
+      return readable ? found : null;
+    }
+    const data = (await res.json())?.data || [];
+    // A token without Read access gets 200 with an empty list for public photos.
+    if (data.length) readable = true;
+    for (const d of data) {
+      if (typeof d.computed_compass_angle === "number") found.set(String(d.id), round(((d.computed_compass_angle % 360) + 360) % 360, 1));
+    }
+    await sleep(150);
+  }
+  return readable ? found : null;
 }
 
 function toView(lon, lat, p) {

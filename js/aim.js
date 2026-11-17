@@ -13,9 +13,11 @@
 // lenses facing the sides of the car (it keeps the stitch seams off the road
 // ahead and behind, and the camera out of the wind), so the image centre
 // points sideways, not forward. Mapillary's own alignment (Graph API
-// computed_compass_angle) accounts for that, but needs a full client token,
-// so for tile data we assume the common left-facing mount and keep a table of
-// uploaders known to differ.
+// computed_compass_angle) accounts for that and is what the data pipeline
+// stores as computedCompass whenever its token can read the Graph API. Only
+// without it do we fall back to assuming the common left-facing mount, with a
+// table of uploaders known to differ. That guess is wrong for any sequence
+// mounted the other way.
 
 /**
  * Degrees from a panorama's compass_angle to its image centre when nothing

@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { imageSources } from "../js/images.js";
 import { isNeonSign, SIGN_TYPES } from "../js/signs.js";
 import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
-import { lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
+import { lookupComputedCompass, lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
 import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
 import { enrichWikiLinks, fetchCoordinates, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
 import * as yesterdays from "./lib/yesterdays.mjs";
@@ -93,10 +93,12 @@ function toFeature(el) {
 }
 
 /**
- * Attach properties.mapillary = { "<image id>": { lon, lat, compass, pano, captured } }
+ * Attach properties.mapillary = { "<image id>": { lon, lat, compass, computedCompass, pano, captured, creator } }
  * so the viewer can turn 360° photos toward the sign. A photo never moves, so
  * views already in the committed file are reused and only new ids are looked
  * up (which needs a Mapillary token; without one, new photos just aren't aimed).
+ * Panoramas without computedCompass (new, or not yet aligned by Mapillary) are
+ * looked up in the Graph API on every run until they have one.
  */
 async function attachMapillaryViews(features, existing) {
   const known = new Map();
@@ -119,8 +121,8 @@ async function attachMapillaryViews(features, existing) {
     }
   }
 
+  const token = mapillaryToken(ROOT);
   if (wanted.length) {
-    const token = mapillaryToken(ROOT);
     if (!token) {
       console.warn(`${wanted.length} new Mapillary photo(s) can't be aimed: no MAPILLARY_TOKEN set.`);
     } else {
@@ -129,6 +131,21 @@ async function attachMapillaryViews(features, existing) {
       for (const [id, view] of found) known.set(id, view);
       const missing = wanted.filter((w) => !found.has(w.id)).map((w) => w.id);
       if (missing.length) console.warn(`Not found in Mapillary coverage near the sign: ${missing.join(", ")}`);
+    }
+  }
+
+  // Which way each panorama's image centre faces (left or right of travel
+  // varies by sequence, even within one drive).
+  const inUse = new Set(features.flatMap(idsFor));
+  const unaligned = [...inUse].filter((id) => known.get(id)?.pano && typeof known.get(id).computedCompass !== "number");
+  if (unaligned.length && token) {
+    const computed = await lookupComputedCompass(unaligned, token);
+    if (computed === null) {
+      console.warn(`${unaligned.length} panorama(s) aimed by compass_angle only: the Mapillary token can't read the Graph API.`);
+    } else {
+      for (const [id, deg] of computed) known.set(id, { ...known.get(id), computedCompass: deg });
+      const left = unaligned.length - computed.size;
+      console.log(`Mapillary alignment for ${computed.size} panorama(s)${left ? `; ${left} not aligned yet` : ""}.`);
     }
   }
 

@@ -73,3 +73,10 @@ Thumbs.db
 
 # Mapillary token for local data runs — never commit
 .mapillary-token
+.mapillary-key
+
+# OpenCage key (per-project override) — never commit
+.opencage-key
+
+# route66-complete research: raw source pulls (refetchable, large)
+research/
