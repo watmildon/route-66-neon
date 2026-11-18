@@ -36,13 +36,15 @@ The detail panel reads photos from these tags, in this order:
 |---|---|
 | `wikimedia_commons=File:…` | Wikimedia Commons image, credited with its author and licence (looked up from the Commons API when shown) |
 | `wikimedia_commons=Category:…` | A "Gallery" tab: thumbnails of the category's files (up to 50). Click one to enlarge it; the **Gallery** button on the photo, or Esc, goes back to the grid |
+| `flickr=*`, `flickr:N=*` | Flickr photo: the photo page URL (`https://www.flickr.com/photos/<user>/<id>`), a `flic.kr/p/…` short link, or the bare photo id. Shown with its title, author and licence, and linked back to Flickr. Photos under any Creative Commons licence (non-commercial included), CC0, public domain, "no known copyright restrictions" or US Government Work are shown inline; All Rights Reserved photos get an "Open on Flickr" link instead. Album and user links stay plain links. |
 | `mapillary=*`, `mapillary:N=*` | Mapillary image ID (the project's required tag). Uses the Graph API thumbnail if a client token is set in [`js/config.js`](js/config.js); otherwise falls back to Mapillary's embedded viewer. |
 | `panoramax=*`, `panoramax:N=*` | Panoramax picture, via the federated `api.panoramax.xyz` catalogue |
 | *(no tag: matched by the data pipeline)* | A "Yesterdays" tab: historical photos and postcards from [Yesterdays](https://yesterdays.today), e.g. the Newberry Library's Route 66 postcards and John Margolies' Roadside America photos. Each is credited with its date, source and licence (or a link to the rights statement at the source) and links to its Yesterdays page. Images are Yesterdays' ~500 px versions. |
-| `image=*`, `image:N=*` | Commons file/category, Mapillary and Panoramax URLs are recognised; direct `.jpg/.png/.webp` links are shown inline; anything else becomes an "open original" link |
+| `image=*`, `image:N=*` | Commons file/category, Flickr photo, Mapillary and Panoramax URLs are recognised; direct `.jpg/.png/.webp` links are shown inline; anything else becomes an "open original" link |
 
-Commons comes first because those photos are usually chosen shots, often at
-night with the neon lit; street-level imagery is mostly daytime.
+Commons comes first, then Flickr, because those photos are usually chosen
+shots, often at night with the neon lit; street-level imagery is mostly
+daytime.
 
 Multiple values (`a;b`) and several sources per sign all appear as tabs. The
 expand button (bottom-left of the photo) opens it full-screen. You can keep
@@ -140,6 +142,7 @@ both, runs the tests, and commits only if the data changed. Safety rails:
 - leaves `signs.geojson` untouched when no sign changed, so there are no empty commits
 - if the weekly route refresh fails, the committed line is kept
 - Mapillary photo info is looked up once per photo and carried forward, since photos don't move
+- Flickr photos are looked up through Flickr's oEmbed endpoint (no API key) and stored in `properties.flickr`. Each is rechecked after 30 days, since owners can change the licence or delete the photo; a deleted photo (404) is dropped, and any other failure keeps the previous entry
 - if the place lookup or Wikidata is unavailable, the previous run's wiki links and labels are kept
 - if Yesterdays is unavailable, each sign keeps its previous Yesterdays photos
 

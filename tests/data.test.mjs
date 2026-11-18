@@ -98,6 +98,20 @@ test("Mapillary views are well-formed and close to their sign", () => {
   }
 });
 
+test("Flickr entries are well-formed and point at Flickr", () => {
+  const fc = load("signs.geojson");
+  for (const f of fc.features) {
+    for (const [id, e] of Object.entries(f.properties.flickr || {})) {
+      const where = `${f.properties.osm_type}/${f.properties.osm_id} Flickr ${id}`;
+      assert.match(id, /^\d+$/, where);
+      assert.match(e.src, /^https:\/\/live\.staticflickr\.com\//, where);
+      assert.match(e.page, /^https:\/\/www\.flickr\.com\/photos\//, where);
+      assert.ok(Number.isInteger(e.license_id), where);
+      assert.match(e.checked, /^\d{4}-\d{2}-\d{2}$/, where);
+    }
+  }
+});
+
 test("alignments.geojson holds labelled LineStrings along the route", () => {
   const fc = load("alignments.geojson");
   assert.equal(fc.type, "FeatureCollection");

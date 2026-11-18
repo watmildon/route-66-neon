@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { imageSources } from "../js/images.js";
 import { isNeonSign, SIGN_TYPES } from "../js/signs.js";
 import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
+import { refreshFlickr } from "./lib/flickr.mjs";
 import { lookupComputedCompass, lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
 import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
 import { enrichWikiLinks, fetchCoordinates, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
@@ -153,6 +154,33 @@ async function attachMapillaryViews(features, existing) {
     const views = {};
     for (const id of idsFor(f)) if (known.has(id)) views[id] = sortKeys(known.get(id));
     if (Object.keys(views).length) f.properties.mapillary = views;
+  }
+}
+
+/**
+ * Attach properties.flickr = { "<photo id>": { page, src, thumb, title, author,
+ * author_url, license, license_id, license_url, checked } } for Flickr photos
+ * tagged on signs (flickr=*, or Flickr links in image=*). Entries in the
+ * committed file are reused until they're RECHECK_DAYS old (see lib/flickr.mjs).
+ */
+async function attachFlickr(features, existing) {
+  const known = new Map();
+  for (const f of existing?.features || []) {
+    for (const [id, e] of Object.entries(f.properties.flickr || {})) known.set(id, e);
+  }
+  const idsFor = (f) =>
+    imageSources(f.properties.tags)
+      .filter((s) => s.kind === "flickr")
+      .map((s) => s.id);
+  const ids = [...new Set(features.flatMap(idsFor))];
+  if (!ids.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const { entries, looked, gone, failed } = await refreshFlickr(ids, known, today);
+  console.log(`Flickr: ${ids.length} photo(s) tagged; looked up ${looked}${gone ? `, ${gone} gone` : ""}${failed ? `, ${failed} failed` : ""}.`);
+  for (const f of features) {
+    const photos = {};
+    for (const id of idsFor(f)) if (entries.has(id)) photos[id] = sortKeys(entries.get(id));
+    if (Object.keys(photos).length) f.properties.flickr = photos;
   }
 }
 
@@ -358,6 +386,7 @@ async function main() {
 
   const existing = readExisting();
   await attachMapillaryViews(features, existing);
+  await attachFlickr(features, existing);
   await attachWiki(features, existing);
   await attachYesterdays(features, existing, bbox);
   const oldFeatures = existing?.features || [];

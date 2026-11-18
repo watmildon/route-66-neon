@@ -130,8 +130,8 @@ async function boot() {
 function init(signsFc, routeFc, alignFc) {
   state.signs = signsFc.features
     .map((f) => {
-      const { osm_type: type, osm_id: id, tags = {}, mapillary = {}, wiki = [], yesterdays = [] } = f.properties;
-      const photos = imageSources(tags, { yesterdays });
+      const { osm_type: type, osm_id: id, tags = {}, mapillary = {}, wiki = [], yesterdays = [], flickr = {} } = f.properties;
+      const photos = imageSources(tags, { yesterdays, flickr });
       return {
         key: `${type}/${id}`,
         type,
@@ -823,6 +823,7 @@ async function renderPhoto(s) {
   }
 
   if (p.kind === "mapillary") return renderMapillary(s, p, token, box, meta);
+  if (p.kind === "flickr") return renderFlickr(s, p, box, meta);
   if (p.kind === "gallery" || p.kind === "yesterdays") return renderGallery(s, p, token, box, meta);
 
   const original = originalLink(p.href);
@@ -849,6 +850,37 @@ async function renderPhoto(s) {
 }
 
 const originalLink = (href) => `<a href="${esc(href)}" target="_blank" rel="noopener">Open original ↗</a>`;
+
+/**
+ * A Flickr photo, from what the data pipeline looked up (p.info). All Rights
+ * Reserved photos, and ones not looked up yet, have no src: they get a link.
+ */
+function renderFlickr(s, p, box, meta) {
+  const open = `<a href="${esc(p.href)}" target="_blank" rel="noopener">Open on Flickr ↗</a>`;
+  meta.innerHTML = `${flickrCreditHtml(p.info)} · ${open}`;
+  if (!p.src) {
+    const why = p.info ? "Its owner reserves all rights, so it can't be shown here." : "It hasn't been looked up yet.";
+    box.innerHTML = `<div class="msg">This sign links to a photo on Flickr. ${why}<br>${open}</div>`;
+    return;
+  }
+  showImage(box, p.src, s.title, () => {
+    box.innerHTML = `<div class="msg">Couldn't load this photo.<br>${open}</div>`;
+  });
+}
+
+/** “Title” · © Author · Licence · Flickr, with author and licence linked. */
+function flickrCreditHtml(i) {
+  if (!i) return "Flickr";
+  const free = /public domain|cc0|no known copyright|government work/i.test(i.license || "");
+  const name = i.author ? `${free ? "" : "© "}${esc(i.author)}` : "";
+  const author = name && i.author_url ? `<a href="${esc(i.author_url)}" target="_blank" rel="noopener">${name}</a>` : name;
+  const license = i.license
+    ? i.license_url
+      ? `<a href="${esc(i.license_url)}" target="_blank" rel="noopener license">${esc(i.license)}</a>`
+      : esc(i.license)
+    : "";
+  return [i.title ? `“${esc(i.title)}”` : "", author, license, "Flickr"].filter(Boolean).join(" · ");
+}
 
 /** "© Author · Licence · Wikimedia Commons", with the licence linked when Commons gives a URL. */
 function commonsCreditHtml(c) {

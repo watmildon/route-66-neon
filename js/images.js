@@ -5,8 +5,10 @@
 //   wikimedia_commons=*, …:*=*          "File:…" names, and "Category:…" names,
 //                                       which become a thumbnail gallery
 //   mapillary=*, mapillary:*=*          Mapillary image IDs (the project's required tag)
+//   flickr=*, flickr:*=*                Flickr photo URLs (flickr.com/photos/…/<id>
+//                                       or flic.kr/p/…), or bare photo ids
 //   panoramax=*, panoramax:*=*          Panoramax picture UUIDs
-//   image=*, image:*=*                  URLs: Commons/Mapillary/Panoramax links are
+//   image=*, image:*=*                  URLs: Commons/Flickr/Mapillary/Panoramax links are
 //                                       recognised, direct image files are shown,
 //                                       anything else becomes a plain link.
 //
@@ -18,7 +20,7 @@ import { splitValues } from "./signs.js";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const DIRECT_IMAGE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
 
-const KIND_ORDER = { commons: 0, gallery: 1, mapillary: 2, panoramax: 3, yesterdays: 4, url: 5, link: 6 };
+const KIND_ORDER = { commons: 0, gallery: 1, flickr: 2, mapillary: 3, panoramax: 4, yesterdays: 5, url: 6, link: 7 };
 
 /**
  * Historical photos matched on yesterdays.today by the data pipeline
@@ -44,6 +46,76 @@ export function mapillary(id, key) {
     href: `https://www.mapillary.com/app/?pKey=${id}&focus=photo`,
     embed: `https://www.mapillary.com/embed?image_key=${id}&style=photo`,
     credit: "Mapillary (CC BY-SA 4.0)",
+  };
+}
+
+// ---------------------------------------------------------------- Flickr --
+
+// flic.kr short links are the photo id in Flickr's base58 alphabet.
+const FLICKR_B58 = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
+const FLICKR_HOST = /^(www\.|m\.|secure\.)?flickr\.com$/;
+
+/** "https://flic.kr/p/2jpWycc" ← "50154038121": the form Flickr's oEmbed accepts for any photo id. */
+export function flickrShortUrl(id) {
+  let n = BigInt(id);
+  let out = "";
+  while (n > 0n) {
+    out = FLICKR_B58[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  return `https://flic.kr/p/${out || "1"}`;
+}
+
+/**
+ * The photo id in a Flickr photo page URL or flic.kr short link, or a bare
+ * id when `bare` is true (flickr=* sometimes holds just the id). Album, user
+ * and group URLs have no single photo, so they give null.
+ */
+export function flickrPhotoId(value, { bare = false } = {}) {
+  const v = String(value ?? "").trim();
+  if (bare && /^\d{5,13}$/.test(v)) return v;
+  let url;
+  try {
+    url = new URL(v.startsWith("//") ? `https:${v}` : v);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  if (FLICKR_HOST.test(host)) {
+    const m = /^\/photos\/[^/]+\/(\d{5,13})(\/|$)/.exec(url.pathname);
+    return m ? m[1] : null;
+  }
+  if (host === "flic.kr") {
+    const m = /^\/p\/([1-9a-km-zA-HJ-NP-Z]{1,12})\/?$/.exec(url.pathname);
+    if (!m) return null;
+    let n = 0n;
+    for (const c of m[1]) n = n * 58n + BigInt(FLICKR_B58.indexOf(c));
+    return n > 0n ? n.toString() : null;
+  }
+  return null;
+}
+
+/** Flickr's licence id for All Rights Reserved: shown as a link, never inline. */
+export const FLICKR_ALL_RIGHTS_RESERVED = 0;
+
+/**
+ * A Flickr photo. `info` is what the data pipeline looked up through Flickr's
+ * oEmbed (properties.flickr[id]): { page, src, thumb, title, author,
+ * author_url, license, license_id, license_url }. Without it, or for an
+ * All Rights Reserved photo, there's no src and the photo is just a link.
+ */
+export function flickr(id, key, info = null) {
+  const show = Boolean(info?.src) && info.license_id !== FLICKR_ALL_RIGHTS_RESERVED;
+  return {
+    kind: "flickr",
+    id,
+    key,
+    label: "Flickr",
+    href: info?.page || flickrShortUrl(id),
+    src: show ? info.src : null,
+    info,
+    credit: "Flickr",
   };
 }
 
@@ -213,6 +285,11 @@ export function classifyImageValue(value, key) {
     if (c) return commonsGallery(safeDecode(c[1]), key);
   }
 
+  if (FLICKR_HOST.test(host) || host === "flic.kr") {
+    const id = flickrPhotoId(url.href);
+    if (id) return flickr(id, key);
+  }
+
   if (host.endsWith("mapillary.com")) {
     const pKey = url.searchParams.get("pKey") || url.searchParams.get("image_key");
     if (pKey && /^\d+$/.test(pKey)) return mapillary(pKey, key);
@@ -234,11 +311,12 @@ export function classifyImageValue(value, key) {
 }
 
 /**
- * All photos for a sign, ordered Commons → Commons gallery → Mapillary →
- * Panoramax → Yesterdays → URLs → links. `yesterdays` is the sign's
- * properties.yesterdays from the data file.
+ * All photos for a sign, ordered Commons → Commons gallery → Flickr →
+ * Mapillary → Panoramax → Yesterdays → URLs → links. `yesterdays` and
+ * `flickr` are the sign's properties.yesterdays and properties.flickr from
+ * the data file.
  */
-export function imageSources(tags = {}, { yesterdays = [] } = {}) {
+export function imageSources(tags = {}, { yesterdays = [], flickr: flickrInfo = {} } = {}) {
   const out = [];
   const seen = new Set();
   const add = (src) => {
@@ -253,6 +331,11 @@ export function imageSources(tags = {}, { yesterdays = [] } = {}) {
     const values = splitValues(tags[key]);
     if (/^mapillary(:\d+)?$/.test(key)) {
       for (const v of values) add(/^\d+$/.test(v) ? mapillary(v, key) : classifyImageValue(v, key));
+    } else if (/^flickr(:\d+)?$/.test(key)) {
+      for (const v of values) {
+        const id = flickrPhotoId(v, { bare: true });
+        add(id ? flickr(id, key) : classifyImageValue(v, key));
+      }
     } else if (/^panoramax(:\d+)?$/.test(key)) {
       for (const v of values) {
         const m = UUID.exec(v);
@@ -272,6 +355,7 @@ export function imageSources(tags = {}, { yesterdays = [] } = {}) {
 
   // Stable sort: by kind, keeping tag-key order within a kind.
   return out
+    .map((s) => (s.kind === "flickr" ? flickr(s.id, s.key, flickrInfo?.[s.id] || null) : s))
     .map((s, i) => ({ s, i }))
     .sort((a, b) => KIND_ORDER[a.s.kind] - KIND_ORDER[b.s.kind] || a.i - b.i)
     .map(({ s }) => s);
@@ -279,7 +363,7 @@ export function imageSources(tags = {}, { yesterdays = [] } = {}) {
 
 /** True when at least one source can actually render a picture (not just a link). */
 export function hasPhoto(sources) {
-  return sources.some((s) => s.kind !== "link");
+  return sources.some((s) => s.kind !== "link" && !(s.kind === "flickr" && !s.src));
 }
 
 function safeDecode(s) {
