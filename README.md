@@ -8,7 +8,8 @@ Route 66, built from OpenStreetMap data mapped during the OSM US
   within, i.e. `luminous=yes`, `luminous=neon` or `light:method=neon`, within
   400 m of the
   Historic Route 66 alignment shows as a glowing dot, coloured by `colour=*`
-  when it's set.
+  when it's set. Disused signs lose the glow and abandoned ones show as a
+  ring (see the lifecycle table under [Data pipeline](#data-pipeline)).
 - The corridor also takes in former US 66 alignments that OSM's Historic
   Route 66 relations leave out (dashed on the map; hover for what each one is):
   ways tagged `old_ref=US 66`, and state routes on old 66 such as OK 66,
@@ -183,6 +184,20 @@ neon apart from other signs that are lit from within. The map accepts
 `luminous=yes` alone too, so older tagging still shows. Anything with
 `animated=*` other than `no` (`screen`, `digital_display` …) is treated as a
 digital display and left out, unless it's tagged `light:method=neon`.
+
+Signs in disrepair use OSM's
+[lifecycle prefixes](https://wiki.openstreetmap.org/wiki/Lifecycle_prefix) on
+those same keys, and the map shows the stage:
+
+| Tagging | Example | On the map |
+|---|---|---|
+| no prefix | `advertising=sign` + `light:method=neon` | glowing dot |
+| `disused:` on any of `advertising`, `luminous`, `light:method` | `disused:advertising=sign` (the sign is out of service) | dot without the glow |
+| `abandoned:` on any of them | `advertising=sign` + `abandoned:light:method=neon` + `abandoned:luminous=neon` (the sign is fine, the neon is wrecked) | unfilled ring, no glow |
+
+The worst stage on any of the three keys wins, and the older `disused=yes` /
+`abandoned=yes` on the sign count too. Later stages (`demolished:`,
+`removed:`, `was:` …) mean the sign is gone, so it drops off the map.
 
 ### Settings
 

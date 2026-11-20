@@ -166,6 +166,15 @@ code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radiu
   background: var(--c, var(--pink));
   box-shadow: 0 0 4px var(--c, var(--pink)), 0 0 10px var(--c, var(--pink));
 }
+/* Lifecycle, as on the map: disused = no glow; abandoned = an unlit ring. */
+.dot.disused, .legend-dot.disused { box-shadow: none; }
+.dot.abandoned, .legend-dot.abandoned {
+  box-shadow: none;
+  background: transparent;
+  border: 2px solid var(--c, var(--pink));
+}
+.sign-title.disused, .sign-title.abandoned,
+.photo-top-title.disused, .photo-top-title.abandoned { text-shadow: none; }
 
 #sidebar footer { padding: 10px 14px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 #sidebar footer p { margin: 0 0 6px; }

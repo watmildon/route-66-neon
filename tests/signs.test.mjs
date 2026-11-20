@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_NEON, isNeonSign, neonColour, signTitle, splitValues } from "../js/signs.js";
+import { DEFAULT_NEON, isNeonSign, neonColour, signLifecycle, signTitle, splitValues } from "../js/signs.js";
 
 test("splitValues trims and drops empties", () => {
   assert.deepEqual(splitValues(" a; b ;;c "), ["a", "b", "c"]);
@@ -39,6 +39,33 @@ test("isNeonSign rejects other signage", () => {
   assert.equal(isNeonSign({ advertising: "totem", luminous: "yes" }), false);
   assert.equal(isNeonSign({ advertising: "signpost", luminous: "yes" }), false);
   assert.equal(isNeonSign({}), false);
+});
+
+test("signLifecycle reads disused: and abandoned: prefixes, worst one wins", () => {
+  assert.equal(signLifecycle({ advertising: "sign", "light:method": "neon" }), "active");
+  assert.equal(signLifecycle({ "disused:advertising": "sign", "light:method": "neon" }), "disused");
+  assert.equal(signLifecycle({ "disused:advertising": "sign", "disused:luminous": "yes" }), "disused");
+  // The sign is fine but its neon is wrecked (node/14398830501, Budville).
+  const budville = { advertising: "sign", "abandoned:light:method": "neon", "abandoned:luminous": "neon" };
+  assert.equal(signLifecycle(budville), "abandoned");
+  assert.ok(isNeonSign(budville));
+  // Mixed stages: the worst one wins.
+  assert.equal(signLifecycle({ advertising: "sign", luminous: "yes", "disused:light:method": "neon" }), "disused");
+  assert.equal(signLifecycle({ "disused:advertising": "sign", "abandoned:light:method": "Neon" }), "abandoned");
+  // The older bare forms.
+  assert.equal(signLifecycle({ advertising: "sign", luminous: "yes", disused: "yes" }), "disused");
+  assert.equal(signLifecycle({ advertising: "sign", luminous: "yes", abandoned: "yes" }), "abandoned");
+  assert.equal(signLifecycle({ advertising: "sign", luminous: "yes", disused: "no" }), "active");
+});
+
+test("signLifecycle leaves out gone signs and other stages' non-neon tagging", () => {
+  assert.equal(signLifecycle({ "demolished:advertising": "sign", "light:method": "neon" }), null);
+  assert.equal(signLifecycle({ "was:advertising": "sign", "was:light:method": "neon" }), null);
+  assert.equal(signLifecycle({ advertising: "sign", "removed:light:method": "neon" }), null);
+  assert.equal(signLifecycle({ advertising: "sign", "disused:light:method": "led" }), null);
+  assert.equal(signLifecycle({ "disused:advertising": "totem", "disused:luminous": "yes" }), null);
+  assert.equal(signLifecycle({ advertising: "sign", "disused:luminous": "yes", animated: "screen" }), null);
+  assert.equal(signLifecycle({ advertising: "sign", "abandoned:light:method": "neon", animated: "yes" }), "abandoned");
 });
 
 test("neonColour uses colour=* names and hex, else the default", () => {

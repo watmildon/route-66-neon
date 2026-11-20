@@ -5,7 +5,8 @@
 // 1. Ask Postpass for lit signs and billboards inside the route's bounding box
 //    (falls back to Overpass if Postpass is down or stale).
 // 2. Keep advertising=sign or billboard + luminous=yes/neon or
-//    light:method=neon (see isNeonSign in js/signs.js).
+//    light:method=neon, any of them possibly with a disused: or abandoned:
+//    prefix (see signLifecycle in js/signs.js).
 // 3. Keep only signs within NEON_BUFFER_M metres of the route lines in
 //    data/route66.geojson and data/alignments.geojson — plenty of luminous=yes signs elsewhere are plain
 //    backlit boxes, not part of this project.
@@ -23,7 +24,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { imageSources } from "../js/images.js";
-import { isNeonSign, SIGN_TYPES } from "../js/signs.js";
+import { isNeonSign, LIFECYCLE_KEYS, SIGN_TYPES } from "../js/signs.js";
 import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
 import { refreshFlickr } from "./lib/flickr.mjs";
 import { lookupComputedCompass, lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
@@ -58,24 +59,33 @@ function paddedBbox(lines) {
   return [w - pad * 1.4, s - pad, e + pad * 1.4, n + pad].map((v) => round(v, 4));
 }
 
+// Each key with its lifecycle-prefixed forms (disused:luminous …).
+const LIGHT_KEYS = [...LIFECYCLE_KEYS("luminous"), ...LIFECYCLE_KEYS("light:method")];
+const ADVERTISING_KEYS = LIFECYCLE_KEYS("advertising");
+
 async function fromPostpass([w, s, e, n]) {
   // Broad on purpose (any sign or billboard with luminous or light:method);
   // the exact tag test happens in isNeonSign so Postpass and Overpass agree.
+  const adv = ADVERTISING_KEYS.flatMap((k) => SIGN_TYPES.map((t) => `tags->>'${k}' ILIKE '%${t}%'`)).join(" OR ");
   const sql = `
 SELECT osm_type, osm_id, tags, ST_PointOnSurface(geom) AS geom
 FROM postpass_pointlinepolygon
 WHERE geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
-  AND (tags ? 'luminous' OR tags ? 'light:method')
-  AND (tags->>'advertising' ILIKE '%sign%' OR tags->>'advertising' ILIKE '%billboard%')`;
+  AND (${LIGHT_KEYS.map((k) => `tags ? '${k}'`).join(" OR ")})
+  AND (${adv})`;
   return postpassQuery(sql);
 }
 
 async function fromOverpass([w, s, e, n]) {
-  const adv = `["advertising"~"(^|;) *(${SIGN_TYPES.join("|")}) *(;|$)",i]`;
+  const types = `"(^|;) *(${SIGN_TYPES.join("|")}) *(;|$)",i`;
+  // One statement per key pair: plain key filters use Overpass's index, which a
+  // key regex wouldn't.
+  const statements = ADVERTISING_KEYS.flatMap((a) =>
+    LIGHT_KEYS.map((l) => `  nwr["${a}"~${types}]["${l}"](${s},${w},${n},${e});`)
+  );
   const ql = `[out:json][timeout:180];
 (
-  nwr${adv}["luminous"](${s},${w},${n},${e});
-  nwr${adv}["light:method"](${s},${w},${n},${e});
+${statements.join("\n")}
 );
 out center tags qt;`;
   const { json, timestamp } = await overpassQuery(ql, { repoRoot: ROOT });

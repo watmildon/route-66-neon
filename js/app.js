@@ -9,7 +9,7 @@ import {
   parseCommonsInfo,
   yesterdaysMapUrl,
 } from "./images.js";
-import { neonColour, signTitle } from "./signs.js";
+import { neonColour, signLifecycle, signTitle } from "./signs.js";
 import { ROUTE_STATES, routeState } from "./states.js";
 import { MAPILLARY_CLIENT_TOKEN } from "./config.js";
 
@@ -141,6 +141,7 @@ function init(signsFc, routeFc, alignFc) {
         wiki, // [{ qid, label, description, wikipedia, image, source, source_name }]
         coord: f.geometry.coordinates,
         color: neonColour(tags),
+        life: signLifecycle(tags) || "active", // "active" | "disused" | "abandoned"
         title: signTitle(tags),
         photos,
         hasCommons: photos.some((p) => p.kind === "commons" || p.kind === "gallery"),
@@ -179,7 +180,7 @@ function addLayers(routeFc, alignFc) {
       features: state.signs.map((s) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: s.coord },
-        properties: { key: s.key, color: s.color },
+        properties: { key: s.key, color: s.color, life: s.life },
       })),
     },
   });
@@ -256,6 +257,10 @@ function addLayers(routeFc, alignFc) {
     );
   }
 
+  // Lifecycle (see signLifecycle): disused signs lose the glow; abandoned ones
+  // also become a ring in their colour. The halo stays as an invisible hit
+  // target so they're as easy to click as the rest.
+  const life = ["get", "life"];
   map.addLayer({
     id: "sign-halo",
     type: "circle",
@@ -264,7 +269,7 @@ function addLayers(routeFc, alignFc) {
       "circle-color": ["get", "color"],
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 9, 8, 15, 14, 26, 18, 34],
       "circle-blur": 0.85,
-      "circle-opacity": 0.6,
+      "circle-opacity": ["case", ["==", life, "active"], 0.6, 0],
     },
   });
   map.addLayer({
@@ -272,9 +277,9 @@ function addLayers(routeFc, alignFc) {
     type: "circle",
     source: "signs",
     paint: {
-      "circle-color": ["get", "color"],
+      "circle-color": ["case", ["==", life, "abandoned"], "rgba(0,0,0,0)", ["get", "color"]],
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 3, 8, 4.5, 14, 7, 18, 9],
-      "circle-stroke-color": "#ffffff",
+      "circle-stroke-color": ["case", ["==", life, "abandoned"], ["get", "color"], "#ffffff"],
       "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 14, 2],
       "circle-stroke-opacity": 0.9,
     },
@@ -320,7 +325,7 @@ function renderList() {
     }
     if (state.collapsed.has(current)) continue;
     rows.push(`<li><button type="button" data-key="${esc(s.key)}" ${s.key === state.selected?.key ? 'aria-current="true"' : ""}>
-        <span class="dot" style="--c:${s.color}"></span>
+        <span class="dot ${s.life}" style="--c:${s.color}"></span>
         <span class="t">${esc(s.title)}</span>
         ${signBadges(s)}
       </button></li>`);
@@ -504,20 +509,21 @@ function renderDetail(s) {
     .join(", ");
   const facts = FACTS.filter(([k]) => t[k]).map(([k, label]) => `<dt>${label}</dt><dd>${esc(human(t[k]))}</dd>`);
   if (addr) facts.unshift(`<dt>Address</dt><dd>${esc(addr)}</dd>`);
+  if (s.life !== "active") facts.unshift(`<dt>Condition</dt><dd>${s.life === "disused" ? "Disused" : "Abandoned"}</dd>`);
 
   const osmUrl = `https://www.openstreetmap.org/${s.type}/${s.id}`;
   const idUrl = `https://www.openstreetmap.org/edit?editor=id&${s.type}=${s.id}`;
 
   panel.innerHTML = `
     <div class="detail-top">
-      <h2 class="sign-title" style="--c:${s.color}">${esc(s.title)}</h2>
+      <h2 class="sign-title ${s.life}" style="--c:${s.color}">${esc(s.title)}</h2>
       <button type="button" class="icon-btn" data-action="close" aria-label="Close" title="Close (Esc)">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </div>
     <div class="photo-frame${state.photoExpanded ? " expanded" : ""}" id="photo-frame">
       <div class="photo-top">
-        <span class="photo-top-title" style="--c:${s.color}">${esc(s.title)}</span>
+        <span class="photo-top-title ${s.life}" style="--c:${s.color}">${esc(s.title)}</span>
         <span class="photo-top-nav" id="photo-top-nav"></span>
         <button type="button" class="icon-btn" data-action="shrink" aria-label="Shrink photo" title="Shrink (Esc)">${shrinkIcon()}</button>
       </div>

@@ -13,22 +13,55 @@ export function splitValues(value) {
 export const SIGN_TYPES = ["sign", "billboard"];
 
 /**
+ * Lifecycle stages the map shows, least to most decayed
+ * (https://wiki.openstreetmap.org/wiki/Lifecycle_prefix). A stage applies as a
+ * prefix on the sign's own keys: disused:advertising=sign for a sign that's out
+ * of service, or abandoned:light:method=neon for a sign whose neon is wrecked.
+ * Later stages (demolished:, removed:, was: …) mean the sign is gone, so
+ * they aren't read and such signs drop off the map.
+ */
+export const LIFECYCLE = ["active", "disused", "abandoned"];
+const PREFIXES = ["", "disused:", "abandoned:"];
+/** The keys a stage can prefix, for the data queries. */
+export const LIFECYCLE_KEYS = (key) => PREFIXES.map((p) => p + key);
+
+/**
  * The project's tagging: advertising=sign (or billboard) that is lit from
  * within, i.e. luminous=yes or neon, or light:method=neon. light:method=neon
  * is the preferred tag because it tells neon apart from other luminous signs;
  * it counts on its own. Multi-valued tags ("sign;letter_board") are fine, and
  * values are compared case-insensitively.
  *
+ * Each of those keys may carry a disused: or abandoned: prefix. The sign's
+ * stage is the worst one on any of them, so advertising=sign with
+ * abandoned:light:method=neon is an abandoned neon sign. The older
+ * disused=yes / abandoned=yes on the sign count too.
+ *
  * animated=* other than "no" (screen, digital_display, scrolling …) marks a
  * digital billboard or similar, so it's left out unless light:method=neon says
  * otherwise (some classic neon signs have chasing or sequenced tubes).
+ *
+ * Returns "active", "disused" or "abandoned", or null if it isn't a neon sign.
  */
-export function isNeonSign(tags = {}) {
+export function signLifecycle(tags = {}) {
   const values = (key) => splitValues(tags[key]).map((v) => v.toLowerCase());
-  if (!values("advertising").some((v) => SIGN_TYPES.includes(v))) return false;
-  const neon = values("light:method").includes("neon");
-  if (!neon && values("animated").some((v) => v !== "no")) return false;
-  return neon || values("luminous").some((v) => v === "yes" || v === "neon");
+  // The worst stage at which `key` has a matching value, or -1 if none.
+  const stage = (key, ok) => PREFIXES.reduce((worst, p, i) => (values(p + key).some(ok) ? i : worst), -1);
+
+  const advertising = stage("advertising", (v) => SIGN_TYPES.includes(v));
+  if (advertising < 0) return null;
+  const neon = stage("light:method", (v) => v === "neon");
+  const luminous = stage("luminous", (v) => v === "yes" || v === "neon");
+  if (neon < 0 && values("animated").some((v) => v !== "no")) return null;
+  if (neon < 0 && luminous < 0) return null;
+
+  const yes = (key) => values(key).includes("yes");
+  const bare = yes("abandoned") ? 2 : yes("disused") ? 1 : 0;
+  return LIFECYCLE[Math.max(advertising, neon, luminous, bare)];
+}
+
+export function isNeonSign(tags = {}) {
+  return signLifecycle(tags) !== null;
 }
 
 export const DEFAULT_NEON = "#ff2bd6";
