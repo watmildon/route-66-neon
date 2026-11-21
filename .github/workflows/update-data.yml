@@ -55,6 +55,16 @@ jobs:
       - name: Fetch neon signs (Postpass, Overpass fallback)
         run: node scripts/fetch-signs.mjs
 
+      # OSM data problems don't fail the run: fetch-signs leaves them off the
+      # map and lists them in data/issues.md, which is committed below.
+      - name: Report data issues
+        run: |
+          if [ -f data/issues.md ]; then
+            cat data/issues.md >> "$GITHUB_STEP_SUMMARY"
+            n=$(grep -c '^| \[' data/issues.md || true)
+            if [ "$n" -gt 0 ]; then echo "::warning title=Data issues::$n OSM data issue(s), see data/issues.md"; fi
+          fi
+
       - name: Test code and data
         run: npm test
 
@@ -62,7 +72,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/signs.geojson data/route66.geojson data/alignments.geojson
+          git add data/signs.geojson data/route66.geojson data/alignments.geojson data/issues.md
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else

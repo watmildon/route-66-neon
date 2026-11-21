@@ -19,6 +19,10 @@
 //     NEON_DROP_THRESHOLD percent (default 50) — partial responses happen
 //   * one feature per line, sorted by OSM id, tags sorted — readable diffs
 //   * leaves the file untouched when nothing changed, so no empty commits
+//
+// Problems in the OSM data itself (a photo tagged on the wrong sign, a Flickr
+// photo that's gone …) don't stop the run: the bad bit is left out and listed
+// in data/issues.md for mappers to fix (see scripts/lib/issues.mjs).
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -27,6 +31,7 @@ import { imageSources } from "../js/images.js";
 import { isNeonSign, LIFECYCLE_KEYS, SIGN_TYPES } from "../js/signs.js";
 import { linesBounds, M_PER_DEG, round, SegmentIndex } from "./lib/geo.mjs";
 import { refreshFlickr } from "./lib/flickr.mjs";
+import { distanceKm, IssueLog, MAX_KM, writeIssues } from "./lib/issues.mjs";
 import { lookupComputedCompass, lookupMapillaryViews, mapillaryToken } from "./lib/mapillary.mjs";
 import { overpassQuery, overpassToElements, postpassQuery } from "./lib/sources.mjs";
 import { enrichWikiLinks, fetchCoordinates, fetchWikiPlaces, pickWikiLinks, toEntry } from "./lib/wiki.mjs";
@@ -36,6 +41,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ROUTE = join(ROOT, "data", "route66.geojson");
 const ALIGNMENTS = join(ROOT, "data", "alignments.geojson");
 const OUTPUT = join(ROOT, "data", "signs.geojson");
+const ISSUES = join(ROOT, "data", "issues.md");
 
 const BUFFER_M = Number(process.env.NEON_BUFFER_M || 400);
 const DROP_THRESHOLD = Number(process.env.NEON_DROP_THRESHOLD || 50);
@@ -111,7 +117,7 @@ function toFeature(el) {
  * Panoramas without computedCompass (new, or not yet aligned by Mapillary) are
  * looked up in the Graph API on every run until they have one.
  */
-async function attachMapillaryViews(features, existing) {
+async function attachMapillaryViews(features, existing, issues) {
   const known = new Map();
   for (const f of existing?.features || []) {
     for (const [id, view] of Object.entries(f.properties.mapillary || {})) {
@@ -128,7 +134,7 @@ async function attachMapillaryViews(features, existing) {
   const wanted = [];
   for (const f of features) {
     for (const id of idsFor(f)) {
-      if (!known.has(id)) wanted.push({ id, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] });
+      if (!known.has(id)) wanted.push({ id, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], f });
     }
   }
 
@@ -138,10 +144,23 @@ async function attachMapillaryViews(features, existing) {
       console.warn(`${wanted.length} new Mapillary photo(s) can't be aimed: no MAPILLARY_TOKEN set.`);
     } else {
       console.log(`Looking up ${wanted.length} new Mapillary photo(s)…`);
-      const found = await lookupMapillaryViews(wanted, token);
+      const stats = {};
+      const found = await lookupMapillaryViews(wanted, token, stats);
       for (const [id, view] of found) known.set(id, view);
-      const missing = wanted.filter((w) => !found.has(w.id)).map((w) => w.id);
-      if (missing.length) console.warn(`Not found in Mapillary coverage near the sign: ${missing.join(", ")}`);
+      const missing = wanted.filter((w) => !found.has(w.id));
+      if (stats.failedTiles) {
+        // Some tiles didn't load, so "not found" may just mean "not looked at".
+        if (missing.length) console.warn(`${missing.length} Mapillary photo(s) not found; ${stats.failedTiles} tile(s) failed, so not reporting them.`);
+      } else {
+        for (const w of missing) {
+          issues.add(
+            w.f,
+            "Mapillary photo not near the sign",
+            `Mapillary photo ${mapillaryLink(w.id)} isn't in Mapillary's coverage around the sign, so the viewer can't turn toward the sign. ` +
+              "Wrong photo id, a photo that was removed, or the sign is in the wrong place?"
+          );
+        }
+      }
     }
   }
 
@@ -162,10 +181,28 @@ async function attachMapillaryViews(features, existing) {
 
   for (const f of features) {
     const views = {};
-    for (const id of idsFor(f)) if (known.has(id)) views[id] = sortKeys(known.get(id));
+    for (const id of idsFor(f)) {
+      const view = known.get(id);
+      if (!view) continue;
+      // Views are cached by photo id, so a photo copied onto a second sign
+      // brings the first sign's position with it.
+      const km = distanceKm(f.geometry.coordinates, [view.lon, view.lat]);
+      if (km >= MAX_KM.mapillary) {
+        issues.add(
+          f,
+          "Mapillary photo far away",
+          `Mapillary photo ${mapillaryLink(id)} was taken ${km.toFixed(0)} km from the sign. It still shows, but the viewer isn't turned toward the sign. ` +
+            "Wrong photo id, or the sign is in the wrong place?"
+        );
+        continue;
+      }
+      views[id] = sortKeys(view);
+    }
     if (Object.keys(views).length) f.properties.mapillary = views;
   }
 }
+
+const mapillaryLink = (id) => `[${id}](https://www.mapillary.com/app/?pKey=${id}&focus=photo)`;
 
 /**
  * Attach properties.flickr = { "<photo id>": { page, src, thumb, title, author,
@@ -173,7 +210,7 @@ async function attachMapillaryViews(features, existing) {
  * tagged on signs (flickr=*, or Flickr links in image=*). Entries in the
  * committed file are reused until they're RECHECK_DAYS old (see lib/flickr.mjs).
  */
-async function attachFlickr(features, existing) {
+async function attachFlickr(features, existing, issues) {
   const known = new Map();
   for (const f of existing?.features || []) {
     for (const [id, e] of Object.entries(f.properties.flickr || {})) known.set(id, e);
@@ -185,9 +222,13 @@ async function attachFlickr(features, existing) {
   const ids = [...new Set(features.flatMap(idsFor))];
   if (!ids.length) return;
   const today = new Date().toISOString().slice(0, 10);
-  const { entries, looked, gone, failed } = await refreshFlickr(ids, known, today);
+  const { entries, looked, gone, failed, goneIds } = await refreshFlickr(ids, known, today);
   console.log(`Flickr: ${ids.length} photo(s) tagged; looked up ${looked}${gone ? `, ${gone} gone` : ""}${failed ? `, ${failed} failed` : ""}.`);
+  const goneSet = new Set(goneIds);
   for (const f of features) {
+    for (const id of idsFor(f).filter((id) => goneSet.has(id))) {
+      issues.add(f, "Flickr photo gone", `Flickr photo ${id} no longer exists (Flickr says 404), so it can't be shown. Remove it from the sign's tags.`);
+    }
     const photos = {};
     for (const id of idsFor(f)) if (entries.has(id)) photos[id] = sortKeys(entries.get(id));
     if (Object.keys(photos).length) f.properties.flickr = photos;
@@ -258,7 +299,7 @@ async function attachWiki(features, existing) {
  * taken close by and pointed at it (see scripts/lib/yesterdays.mjs).
  * When a lookup fails, the sign keeps the previous run's photos.
  */
-async function attachYesterdays(features, existing, bbox) {
+async function attachYesterdays(features, existing, bbox, issues) {
   const key = (p) => `${p.osm_type}/${p.osm_id}`;
   const previous = new Map((existing?.features || []).map((f) => [key(f.properties), f.properties.yesterdays || []]));
   const prevById = new Map([...previous.values()].flat().map((e) => [e.id, e]));
@@ -337,6 +378,18 @@ async function attachYesterdays(features, existing, bbox) {
     const { ids, incomplete } = wanted.get(key(f.properties));
     const list = new Map([...ids].map((id) => [id, entries.get(id)]).filter(([, e]) => e));
     if (incomplete) for (const e of previous.get(key(f.properties)) || []) if (!list.has(e.id)) list.set(e.id, e);
+    for (const [id, e] of list) {
+      if (!e.camera) continue;
+      const km = distanceKm(f.geometry.coordinates, [e.camera.lon, e.camera.lat]);
+      if (km < MAX_KM.yesterdays) continue;
+      list.delete(id);
+      issues.add(
+        f,
+        "Yesterdays photo far away",
+        `Yesterdays image [${id}](${e.page}) matched this sign but was taken ${km.toFixed(0)} km away, so it's left off. ` +
+          "Check the sign's position and its wikidata=* (or the nearby place it was matched through)."
+      );
+    }
     if (list.size) f.properties.yesterdays = [...list.values()].sort((a, b) => a.id - b.id).map(sortKeys);
   }
   const n = features.filter((f) => f.properties.yesterdays).length;
@@ -395,10 +448,11 @@ async function main() {
   if (!features.length) throw new Error("No neon signs found; refusing to write an empty map.");
 
   const existing = readExisting();
-  await attachMapillaryViews(features, existing);
-  await attachFlickr(features, existing);
+  const issues = new IssueLog();
+  await attachMapillaryViews(features, existing, issues);
+  await attachFlickr(features, existing, issues);
   await attachWiki(features, existing);
-  await attachYesterdays(features, existing, bbox);
+  await attachYesterdays(features, existing, bbox, issues);
   const oldFeatures = existing?.features || [];
   if (oldFeatures.length) {
     const drop = ((oldFeatures.length - features.length) / oldFeatures.length) * 100;
@@ -409,6 +463,11 @@ async function main() {
       );
     }
   }
+
+  // Written even when the signs didn't change: issues can come and go on
+  // their own (a Flickr photo deleted, Mapillary coverage catching up).
+  const wroteIssues = writeIssues(ISSUES, issues.list);
+  console.log(`${issues.list.length} data issue(s)${wroteIssues ? "; wrote data/issues.md" : ", same as before"}.`);
 
   const same =
     oldFeatures.length === features.length &&

@@ -81,11 +81,12 @@ export function isStale(entry, today) {
 
 /**
  * Bring a map of id → entry up to date for `ids`: look up new and stale ones.
- * Returns the new map plus counts for logging.
+ * Returns the new map, counts for logging, and the ids of photos that are gone.
  */
 export async function refreshFlickr(ids, known, today) {
   const out = new Map();
   const counts = { looked: 0, gone: 0, failed: 0 };
+  const goneIds = [];
   for (const id of ids) {
     const prev = known.get(id);
     if (prev && !isStale(prev, today)) {
@@ -98,6 +99,7 @@ export async function refreshFlickr(ids, known, today) {
     if (r.status === "ok") out.set(id, r.entry);
     else if (r.status === "gone") {
       counts.gone++;
+      goneIds.push(id);
       console.warn(`Flickr photo ${id} is gone (404); dropping it.`);
     } else {
       counts.failed++;
@@ -105,5 +107,5 @@ export async function refreshFlickr(ids, known, today) {
       if (prev) out.set(id, prev);
     }
   }
-  return { entries: out, ...counts };
+  return { entries: out, ...counts, goneIds };
 }

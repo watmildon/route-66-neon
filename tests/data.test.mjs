@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isNeonSign } from "../js/signs.js";
+import { distanceKm, MAX_KM } from "../scripts/lib/issues.mjs";
 
 const load = (name) => JSON.parse(readFileSync(new URL(`../data/${name}`, import.meta.url), "utf8"));
 
@@ -72,10 +73,10 @@ test("Yesterdays entries are well-formed, sorted and near their sign when georef
       assert.match(e.thumb, /^https:\/\//, where);
       assert.equal(e.page, `https://yesterdays.today/${e.id}/`, where);
       for (const k of ["license_url", "original"]) if (e[k]) assert.match(e[k], /^https:\/\//, `${where} ${k}`);
+      // fetch-signs leaves far-off images out (and lists them in data/issues.md).
       if (e.camera) {
-        const [lon, lat] = f.geometry.coordinates;
-        const dKm = Math.hypot((e.camera.lon - lon) * 111 * Math.cos((lat * Math.PI) / 180), (e.camera.lat - lat) * 111);
-        assert.ok(dKm < 50, `${where} image ${e.id} is ${dKm.toFixed(1)} km from the sign`);
+        const dKm = distanceKm(f.geometry.coordinates, [e.camera.lon, e.camera.lat]);
+        assert.ok(dKm < MAX_KM.yesterdays, `${where} image ${e.id} is ${dKm.toFixed(1)} km from the sign`);
       }
     });
   }
@@ -90,10 +91,10 @@ test("Mapillary views are well-formed and close to their sign", () => {
       assert.equal(typeof v.pano, "boolean", where);
       assert.ok(v.compass === undefined || (v.compass >= 0 && v.compass <= 360), where);
       assert.ok(v.captured === undefined || /^\d{4}-\d{2}-\d{2}$/.test(v.captured), where);
-      // Photos come from tiles around the sign, so anything far away is a decoding bug.
-      const [lon, lat] = f.geometry.coordinates;
-      const dKm = Math.hypot((v.lon - lon) * 111 * Math.cos((lat * Math.PI) / 180), (v.lat - lat) * 111);
-      assert.ok(dKm < 10, `${where} is ${dKm.toFixed(1)} km from the sign`);
+      // fetch-signs leaves far-off views out (a photo id copied onto the wrong
+      // sign) and lists them in data/issues.md, so one here is a pipeline bug.
+      const dKm = distanceKm(f.geometry.coordinates, [v.lon, v.lat]);
+      assert.ok(dKm < MAX_KM.mapillary, `${where} is ${dKm.toFixed(1)} km from the sign`);
     }
   }
 });

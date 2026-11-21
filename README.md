@@ -133,6 +133,7 @@ the sign, or make sure the place next to it has `wikidata=*` and a matching
 | `data/route66.geojson` | `scripts/fetch-route.mjs`: the ways under superroute [93155](https://www.openstreetmap.org/relation/93155) plus any `network=US:US:Historic` + `ref=66` routes, from **Overpass**, merged and simplified to ~8 m | weekly |
 | `data/alignments.geojson` | `scripts/fetch-route.mjs`: other former US 66 alignments, i.e. the relations listed in `scripts/lib/alignments.mjs` plus ways tagged `old_ref=US 66` (and variants), minus anything already in the main line; one labelled feature per stretch | weekly |
 | `data/signs.geojson` | `scripts/fetch-signs.mjs`: lit signs and billboards in the route's bounding box from **Postpass** (falls back to Overpass), filtered to the tagging and to within 400 m of either route file | daily |
+| [`data/issues.md`](data/issues.md) | `scripts/fetch-signs.mjs`: problems in the OSM data it worked around, for mappers to fix | daily |
 
 [`.github/workflows/update-data.yml`](.github/workflows/update-data.yml) runs
 both, runs the tests, and commits only if the data changed. Safety rails:
@@ -146,6 +147,13 @@ both, runs the tests, and commits only if the data changed. Safety rails:
 - Flickr photos are looked up through Flickr's oEmbed endpoint (no API key) and stored in `properties.flickr`. Each is rechecked after 30 days, since owners can change the licence or delete the photo; a deleted photo (404) is dropped, and any other failure keeps the previous entry
 - if the place lookup or Wikidata is unavailable, the previous run's wiki links and labels are kept
 - if Yesterdays is unavailable, each sign keeps its previous Yesterdays photos
+- problems in the OSM data don't fail the run. A Mapillary photo taken far
+  from its sign (usually a photo id copied onto the wrong sign) isn't aimed,
+  a tagged Mapillary photo that isn't anywhere near the sign isn't aimed, a
+  Yesterdays photo matched to a sign but taken far from it is left off, and a
+  deleted Flickr photo is dropped. Each one is listed in `data/issues.md`,
+  which is committed with the data and shown in the run's summary. The tests
+  still fail the run for malformed data, which would point to a pipeline bug.
 
 ### Yesterdays matches
 

@@ -34,13 +34,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * Resolve image ids to views. `wanted` is [{ id, lon, lat }] where lon/lat is
  * roughly where the photo should be (the sign). Returns Map id → view.
- * Looks in the sign's tile first, then its 8 neighbours.
+ * Looks in the sign's tile first, then its 8 neighbours. Tiles that couldn't
+ * be fetched are counted in `stats.failedTiles`, so a caller can tell "not
+ * near the sign" from "couldn't look".
  */
-export async function lookupMapillaryViews(wanted, token) {
+export async function lookupMapillaryViews(wanted, token, stats = {}) {
+  stats.failedTiles = 0;
   const tiles = new Map(); // "x/y" → Promise<Map id → view>
   const getTile = (t) => {
     const k = `${t.x}/${t.y}`;
-    if (!tiles.has(k)) tiles.set(k, fetchTile(t, token));
+    if (!tiles.has(k)) {
+      const views = fetchTile(t, token).then((v) => {
+        if (v) return v;
+        stats.failedTiles++;
+        return new Map();
+      });
+      tiles.set(k, views);
+    }
     return tiles.get(k);
   };
 
@@ -68,11 +78,11 @@ async function fetchTile(tile, token) {
     res = await fetch(url, { headers: { "User-Agent": userAgent() } });
   } catch (e) {
     console.warn(`Mapillary tile ${tile.z}/${tile.x}/${tile.y}: network error (${e.cause?.code || e.name})`);
-    return new Map();
+    return null;
   }
   if (!res.ok) {
     console.warn(`Mapillary tile ${tile.z}/${tile.x}/${tile.y}: HTTP ${res.status}`);
-    return new Map();
+    return null;
   }
   const layer = decodeTile(new Uint8Array(await res.arrayBuffer())).image;
   const views = new Map();
