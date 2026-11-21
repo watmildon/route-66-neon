@@ -181,7 +181,10 @@ signs are ordinary backlit boxes, not neon.
 
 When tagging, prefer `light:method=neon` (with `luminous=yes`): it tells
 neon apart from other signs that are lit from within. The map accepts
-`luminous=yes` alone too, so older tagging still shows. Anything with
+`luminous=yes` alone too, so older tagging still shows. A sign that's lit
+but isn't neon gets `luminous=yes` plus its actual `light:method` (`LED`,
+`fluorescent`, or `electric` when the technology is unknown); any
+`light:method` without `neon` keeps the sign off the map. Anything with
 `animated=*` other than `no` (`screen`, `digital_display` …) is treated as a
 digital display and left out, unless it's tagged `light:method=neon`.
 

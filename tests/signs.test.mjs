@@ -19,7 +19,16 @@ test("isNeonSign accepts billboards and light:method=neon", () => {
   assert.equal(isNeonSign({ advertising: "billboard", luminous: "yes", "light:method": "neon" }), true);
   assert.equal(isNeonSign({ advertising: "sign", "light:method": "neon" }), true);
   assert.equal(isNeonSign({ advertising: "billboard", "light:method": "Neon" }), true);
-  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", "light:method": "led" }), true);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", "light:method": "neon;LED" }), true);
+});
+
+test("isNeonSign leaves out signs whose light:method isn't neon", () => {
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", "light:method": "led" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", "light:method": "electric" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "neon", "light:method": "fluorescent" }), false);
+  assert.equal(isNeonSign({ advertising: "sign", luminous: "yes", "disused:light:method": "LED" }), false);
+  // The neon is still there (if broken) next to the new lighting.
+  assert.equal(signLifecycle({ advertising: "sign", "light:method": "LED", "abandoned:light:method": "neon" }), "abandoned");
 });
 
 test("isNeonSign leaves out animated displays unless tagged neon", () => {

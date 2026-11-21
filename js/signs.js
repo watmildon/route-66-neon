@@ -29,8 +29,10 @@ export const LIFECYCLE_KEYS = (key) => PREFIXES.map((p) => p + key);
  * The project's tagging: advertising=sign (or billboard) that is lit from
  * within, i.e. luminous=yes or neon, or light:method=neon. light:method=neon
  * is the preferred tag because it tells neon apart from other luminous signs;
- * it counts on its own. Multi-valued tags ("sign;letter_board") are fine, and
- * values are compared case-insensitively.
+ * it counts on its own. Any other light:method (LED, fluorescent, electric …)
+ * is the mapper saying it isn't neon, so it rules the sign out even with
+ * luminous=yes. Multi-valued tags ("sign;letter_board") are fine, and values
+ * are compared case-insensitively.
  *
  * Each of those keys may carry a disused: or abandoned: prefix. The sign's
  * stage is the worst one on any of them, so advertising=sign with
@@ -52,6 +54,7 @@ export function signLifecycle(tags = {}) {
   if (advertising < 0) return null;
   const neon = stage("light:method", (v) => v === "neon");
   const luminous = stage("luminous", (v) => v === "yes" || v === "neon");
+  if (neon < 0 && LIFECYCLE_KEYS("light:method").some((k) => values(k).length)) return null;
   if (neon < 0 && values("animated").some((v) => v !== "no")) return null;
   if (neon < 0 && luminous < 0) return null;
 
