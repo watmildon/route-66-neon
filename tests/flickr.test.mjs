@@ -72,6 +72,27 @@ test("a looked-up Flickr photo shows inline; All Rights Reserved or unknown ones
   assert.equal(unknown.href, "https://flic.kr/p/" + flickrShortUrl("38510585425").split("/p/")[1]);
 });
 
+test("All Rights Reserved Flickr photos sort after the sources that show a picture", () => {
+  const tags = {
+    flickr: "https://www.flickr.com/photos/jimnix/38510585425",
+    "flickr:1": "https://www.flickr.com/photos/jimnix/38510585426",
+    mapillary: "999",
+    "image:2": "https://example.com/page.html",
+  };
+  const reserved = { ...INFO, license: "All Rights Reserved", license_id: 0 };
+  const order = (info) => imageSources(tags, { flickr: info }).map((s) => `${s.kind}:${s.id}`);
+  // The viewable Flickr photo stays ahead of Mapillary; the reserved one drops
+  // behind it, still ahead of plain links.
+  assert.deepEqual(order({ 38510585425: reserved, 38510585426: INFO }), [
+    "flickr:38510585426",
+    "mapillary:999",
+    "flickr:38510585425",
+    "link:https://example.com/page.html",
+  ]);
+  // Not looked up yet (a new tag before the next data run): keeps its place.
+  assert.deepEqual(order({}), ["flickr:38510585425", "flickr:38510585426", "mapillary:999", "link:https://example.com/page.html"]);
+});
+
 test("toEntry keeps what the viewer needs and rejects off-site URLs", () => {
   assert.deepEqual(INFO, {
     page: OEMBED.web_page,

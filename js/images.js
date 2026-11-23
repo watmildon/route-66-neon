@@ -312,7 +312,9 @@ export function classifyImageValue(value, key) {
 
 /**
  * All photos for a sign, ordered Commons → Commons gallery → Flickr →
- * Mapillary → Panoramax → Yesterdays → URLs → links. `yesterdays` and
+ * Mapillary → Panoramax → Yesterdays → URLs → links, except that All Rights
+ * Reserved Flickr photos (which can only be linked to) come after URLs, just
+ * ahead of links. `yesterdays` and
  * `flickr` are the sign's properties.yesterdays and properties.flickr from
  * the data file.
  */
@@ -353,11 +355,15 @@ export function imageSources(tags = {}, { yesterdays = [], flickr: flickrInfo = 
 
   add(yesterdaysGallery(yesterdays));
 
-  // Stable sort: by kind, keeping tag-key order within a kind.
+  // Stable sort by kind, keeping tag-key order within a kind. All Rights
+  // Reserved Flickr photos can only ever be linked to, so they go after
+  // everything that shows a picture, just ahead of plain links.
+  const rank = (s) =>
+    s.kind === "flickr" && s.info?.license_id === FLICKR_ALL_RIGHTS_RESERVED ? KIND_ORDER.url + 0.5 : KIND_ORDER[s.kind];
   return out
     .map((s) => (s.kind === "flickr" ? flickr(s.id, s.key, flickrInfo?.[s.id] || null) : s))
-    .map((s, i) => ({ s, i }))
-    .sort((a, b) => KIND_ORDER[a.s.kind] - KIND_ORDER[b.s.kind] || a.i - b.i)
+    .map((s, i) => ({ s, i, r: rank(s) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
     .map(({ s }) => s);
 }
 
