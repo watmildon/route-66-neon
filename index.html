@@ -42,17 +42,19 @@
       <input id="filter" type="search" placeholder="Filter signs…" aria-label="Filter signs" autocomplete="off">
       <div id="chips" class="chips" role="group" aria-label="Show only signs with"></div>
       <p class="list-hint">Chicago <span aria-hidden="true">→</span> Santa Monica<span id="sign-count" aria-live="polite"></span></p>
-      <ol id="sign-list"></ol>
-      <footer>
-        <p class="legend">
-          <span class="legend-item"><span class="legend-dot" aria-hidden="true"></span> Neon sign</span>
-          <span class="legend-item" title="Tagged with a disused: prefix: out of service"><span class="legend-dot disused" aria-hidden="true"></span> Disused</span>
-          <span class="legend-item" title="Tagged with an abandoned: prefix: in disrepair"><span class="legend-dot abandoned" aria-hidden="true"></span> Abandoned</span>
-          <span class="legend-item"><span class="legend-line" aria-hidden="true"></span> Historic Route 66</span>
-          <span class="legend-item"><span class="legend-line alt" aria-hidden="true"></span> Other former US 66</span>
-        </p>
-        <p>Know a sign that's missing? Add it with <code>advertising=sign</code> + <code>luminous=yes</code> + <code>light:method=neon</code>.</p>
-      </footer>
+      <div class="list-scroll">
+        <ol id="sign-list"></ol>
+        <footer>
+          <p class="legend">
+            <span class="legend-item"><span class="legend-dot" aria-hidden="true"></span> Neon sign</span>
+            <span class="legend-item" title="Tagged with a disused: prefix: out of service"><span class="legend-dot disused" aria-hidden="true"></span> Disused</span>
+            <span class="legend-item" title="Tagged with an abandoned: prefix: in disrepair"><span class="legend-dot abandoned" aria-hidden="true"></span> Abandoned</span>
+            <span class="legend-item"><span class="legend-line" aria-hidden="true"></span> Historic Route 66</span>
+            <span class="legend-item"><span class="legend-line alt" aria-hidden="true"></span> Other former US 66</span>
+          </p>
+          <p>Know a sign that's missing? Add it with <code>advertising=sign</code> + <code>luminous=yes</code> + <code>light:method=neon</code>.</p>
+        </footer>
+      </div>
     </div>
   </aside>
 

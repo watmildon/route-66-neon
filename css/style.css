@@ -94,7 +94,10 @@ code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radiu
 #filter:focus { outline: 2px solid var(--pink); outline-offset: 0; }
 .list-hint { margin: 4px 14px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 
-#sign-list { list-style: none; margin: 0; padding: 4px 6px 8px; overflow-y: auto; flex: 1; min-height: 60px; }
+/* On desktop the list scrolls on its own above a fixed footer; phones scroll
+   the two together (see the end of the file). */
+.list-scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#sign-list { list-style: none; margin: 0; padding: 4px 6px 8px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 60px; }
 #sign-list button {
   width: 100%;
   display: flex;
@@ -210,9 +213,11 @@ code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radiu
   width: var(--detail-w);
   max-height: calc(100% - var(--gap) - var(--info-h));
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px;
 }
 .detail[hidden] { display: none; }
+.peek-btn { display: none; } /* phones only */
 
 .detail-top { display: flex; align-items: flex-start; gap: 10px; }
 .sign-title {
@@ -468,6 +473,8 @@ code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radiu
   position: fixed;
   z-index: 5; /* above the panels (2), below the expanded photo (50) */
   width: 200px;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
   padding: 6px;
   background: var(--panel-solid);
   border: 1px solid var(--line);
@@ -547,20 +554,74 @@ code { font-size: 12px; background: var(--hover); padding: 1px 4px; border-radiu
 
 /* ---------- phones ---------- */
 
-@media (max-width: 720px) {
-  :root { --gap: 8px; }
-  #sidebar { right: var(--gap); width: auto; max-height: 48%; }
+/* Narrow or short screens, including phones held sideways. Keep this query in
+   step with PHONE_QUERY in app.js. There's no room to show a panel and the map
+   side by side, so the list and the sign panel each take the whole screen
+   while open; the map is one tap away (fold the list / minimise the panel). */
+@media (max-width: 720px), (max-height: 500px) {
+  :root { --gap: 8px; --peek-h: 60px; }
   .neon-title { font-size: 21px; }
-  .detail {
-    top: auto;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: auto;
-    max-height: 62%;
-    border-radius: 16px 16px 0 0;
+
+  /* Folded: a title bar across the top. Open: the whole screen. */
+  #sidebar { right: var(--gap); width: auto; }
+  #sidebar:not(.collapsed) {
+    inset: 0;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: var(--panel-solid);
   }
-  /* Phones: the panel is a full-width bottom sheet; controls float above it. */
-  body.detail-open .maplibregl-ctrl-bottom-right { bottom: 62%; }
+  /* The list and the legend scroll together, so the legend doesn't squeeze
+     the list to a row or two on short screens. */
+  .list-scroll { display: block; overflow-y: auto; overscroll-behavior: contain; }
+  #sign-list { overflow: visible; min-height: 0; }
   body.detail-open #sidebar { display: none; }
+
+  /* 16px stops iOS Safari zooming the page in when the box gets focus. */
+  #filter { font-size: 16px; }
+
+  /* Bigger touch targets. */
+  #sign-list button { padding-block: 11px; }
+  #sign-list .state-head button { padding-block: 12px 8px; }
+  .chip { padding: 7px 12px 7px 9px; font-size: 13px; }
+  .photo-tabs button { padding: 9px 14px; }
+  .stepper button { padding: 10px 12px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .chips { gap: 8px; margin-block: 4px 6px; }
+
+  /* The sign panel: the whole screen, its content in a centred column so a
+     sideways phone doesn't get a photo taller than the screen. */
+  .detail {
+    inset: 0;
+    width: auto;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: var(--panel-solid);
+    padding: 14px max(14px, calc((100% - 640px) / 2));
+  }
+  /* 4:3 across the column, but never taller than most of the screen. (A
+     max-height alongside aspect-ratio would narrow the photo instead.) */
+  .photo-frame:not(.expanded) .photo {
+    aspect-ratio: auto;
+    height: min(calc(min(100vw - 28px, 640px) * 0.75), 62vh);
+  }
+  .peek-btn { display: grid; }
+  .peek-btn .caret { transform: rotate(180deg); transition: transform 0.15s ease; }
+
+  /* Minimised: just the title as a bar along the bottom, over the map. */
+  .detail.peek {
+    top: auto;
+    height: var(--peek-h);
+    overflow: hidden;
+    padding-block: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0;
+    cursor: pointer;
+  }
+  .detail.peek > :not(.detail-top) { display: none; }
+  .detail.peek .detail-top { height: 100%; align-items: center; }
+  .detail.peek .sign-title { min-width: 0; margin: 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail.peek .peek-btn .caret { transform: none; }
+  body.detail-peek .maplibregl-ctrl-bottom-right { bottom: var(--peek-h); }
 }

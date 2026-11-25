@@ -17,7 +17,9 @@ const BASEMAP = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.jso
 const ROUTE_BOUNDS = [[-118.7, 33.8], [-87.4, 42.1]];
 
 const $ = (sel) => document.querySelector(sel);
-const isPhone = () => window.matchMedia("(max-width: 720px)").matches;
+// Narrow or short screens (phones either way up). Keep in step with style.css.
+const PHONE_QUERY = window.matchMedia("(max-width: 720px), (max-height: 500px)");
+const isPhone = () => PHONE_QUERY.matches;
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -28,6 +30,7 @@ const state = {
   selected: null,
   photoIndex: 0,
   photoExpanded: false, // survives stepping between signs
+  detailPeek: false, // phones: the sign panel minimised to a title bar (survives stepping)
   galleryItem: null, // index of the enlarged photo in a Commons gallery, or null for the grid
   galleryFocus: null, // thumbnail to focus when returning to the grid
   renderToken: 0,
@@ -71,15 +74,32 @@ const map = new maplibregl.Map({
   dragRotate: false,
 });
 map.touchZoomRotate.disableRotation();
-const ctrlCorner = isPhone() ? "bottom-right" : "top-right";
+// Phones keep the controls by the thumb; on desktop they sit top right, with
+// the sign panel beside them.
+const ctrlCorner = () => (isPhone() ? "bottom-right" : "top-right");
 // "Open this view in…" control (see that section below). Declared here because
 // addControl runs its onAdd straight away.
 let viewBtn = null;
 let viewMenu = null;
 const PENCIL_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }), ctrlCorner);
-map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: false } }), ctrlCorner);
-map.addControl({ onAdd: viewMenuButton, onRemove() {} }, ctrlCorner);
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), ctrlCorner());
+map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: false } }), ctrlCorner());
+map.addControl({ onAdd: viewMenuButton, onRemove() {} }, ctrlCorner());
+
+// Crossing the breakpoint (turning a tablet, resizing a window) swaps the
+// layout, so move the controls to the other corner with it. The stack is
+// mirrored between corners (zoom nearest the corner), so the order flips on
+// the way; the ⓘ credits stay put, last in the bottom right.
+PHONE_QUERY.addEventListener("change", () => {
+  const box = (corner) => map.getContainer().querySelector(`.maplibregl-ctrl-${corner}`);
+  const to = ctrlCorner();
+  const from = box(to === "top-right" ? "bottom-right" : "top-right");
+  const moving = [...from.children].filter((el) => !el.classList.contains("maplibregl-ctrl-attrib"));
+  box(to).prepend(...moving.reverse());
+  setViewMenuOpen(false, { focus: false });
+  if (isPhone()) setSidebarCollapsed(true); // open, it would now cover the whole map
+  else setDetailPeek(false);
+});
 
 // The ⓘ control carries the credits plus the data date, so it's added once the
 // data has loaded (customAttribution is fixed at construction).
@@ -89,6 +109,19 @@ function addInfoControl(osmBase) {
     ? `OSM data as of ${d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}`
     : null;
   map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: date || undefined }), "bottom-right");
+  // MapLibre stacks each new bottom-corner control above the last, which
+  // would put the credits above the phone's zoom/locate buttons. Keep them at
+  // the very bottom, so they open along the screen's edge, under the buttons.
+  const corner = map.getContainer().querySelector(".maplibregl-ctrl-bottom-right");
+  corner.append(corner.querySelector(".maplibregl-ctrl-attrib"));
+  // MapLibre opens the credits at first. On a phone they're a wide banner over
+  // the map, so let them be read for a few seconds, then fold them to the ⓘ.
+  if (isPhone()) setTimeout(foldCredits, 6000);
+}
+
+/** Fold open ⓘ credits back to the button (MapLibre's own toggle). */
+function foldCredits() {
+  document.querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button")?.click();
 }
 
 // Initial fit: keep the route clear of the sidebar.
@@ -424,9 +457,8 @@ function select(key, { fly = true, animate = true } = {}) {
   if (location.hash !== `#${key}`) history.replaceState(null, "", `#${key}`);
   if (isPhone()) {
     setSidebarCollapsed(true);
-    // The open ⓘ credits would sit over the sign above the bottom sheet;
-    // fold them back to the button (MapLibre's own toggle).
-    document.querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button")?.click();
+    // Open ⓘ credits would cover the map above the minimised panel.
+    foldCredits();
   }
 
   if (fly) {
@@ -444,12 +476,11 @@ function select(key, { fly = true, animate = true } = {}) {
 
 /** Pixel offset that centres a sign in the part of the map not hidden by panels. */
 function detailOffset() {
+  // Phones: the panel covers the map, and the sidebar is hidden while it's
+  // open. Centre the sign above the minimised title bar, so it's in view
+  // whenever the map is.
+  if (isPhone()) return [0, -peekHeight() / 2];
   const r = $("#sidebar").getBoundingClientRect();
-  if (isPhone()) {
-    const top = $("#sidebar").offsetParent ? r.bottom : 0;
-    const bottom = window.innerHeight * 0.62;
-    return [0, (top - bottom) / 2];
-  }
   const left = r.right;
   const right = window.innerWidth - $("#detail").getBoundingClientRect().left;
   return [(left - right) / 2, 0];
@@ -464,10 +495,35 @@ function closeDetail() {
   panel.innerHTML = "";
   document.body.classList.remove("detail-open", "photo-expanded");
   state.photoExpanded = false;
+  setDetailPeek(false); // the next sign opens in full
   map.keyboard.enable();
   map.setFilter("sign-selected", ["==", ["get", "key"], ""]);
   for (const b of document.querySelectorAll("#sign-list button[aria-current]")) b.removeAttribute("aria-current");
   history.replaceState(null, "", location.pathname + location.search);
+}
+
+/**
+ * Phones: minimise the sign panel to a title bar along the bottom, to see the
+ * sign on the map (or expand it again). Picking another sign keeps it
+ * minimised, so you can tap around the map reading names.
+ */
+function setDetailPeek(peek) {
+  state.detailPeek = peek;
+  const panel = $("#detail");
+  panel.classList.toggle("peek", peek);
+  document.body.classList.toggle("detail-peek", peek && !!state.selected);
+  const btn = panel.querySelector("[data-action=peek]");
+  if (btn) {
+    btn.title = peek ? "Show the details" : "Show the map";
+    btn.setAttribute("aria-label", btn.title);
+    btn.setAttribute("aria-expanded", String(!peek));
+  }
+  if (peek) panel.scrollTop = 0;
+}
+
+/** Height of the minimised panel, from the stylesheet (0 off phones). */
+function peekHeight() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--peek-h")) || 0;
 }
 
 function step(dir) {
@@ -517,6 +573,9 @@ function renderDetail(s) {
   panel.innerHTML = `
     <div class="detail-top">
       <h2 class="sign-title ${s.life}" style="--c:${s.color}">${esc(s.title)}</h2>
+      <button type="button" class="icon-btn peek-btn" data-action="peek" aria-controls="detail">
+        <svg class="caret" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <button type="button" class="icon-btn" data-action="close" aria-label="Close" title="Close (Esc)">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
@@ -556,6 +615,7 @@ function renderDetail(s) {
     <nav class="stepper" id="stepper" aria-label="Step along the route"></nav>`;
   panel.hidden = false;
   panel.scrollTop = 0;
+  setDetailPeek(state.detailPeek); // label the new button, sync the body class
   for (const img of panel.querySelectorAll(".wiki-thumb img")) img.onerror = () => img.closest(".wiki-thumb").remove();
 
   renderStepper(s);
@@ -727,12 +787,16 @@ function setViewMenuOpen(open, { focus = true } = {}) {
   // Beside the button, opening leftward; on phones the controls sit at the
   // bottom, so the menu grows upward from the button instead.
   const r = viewBtn.getBoundingClientRect();
+  const up = ctrlCorner().startsWith("bottom");
   Object.assign(viewMenu.style, {
     right: `${window.innerWidth - r.left + 8}px`,
-    top: ctrlCorner.startsWith("top") ? `${r.top}px` : "",
-    bottom: ctrlCorner.startsWith("bottom") ? `${window.innerHeight - r.bottom}px` : "",
+    top: up ? "" : `${r.top}px`,
+    bottom: up ? `${window.innerHeight - r.bottom}px` : "",
   });
   viewMenu.hidden = false;
+  // Short screens: pin it to the top edge rather than let it run off (it
+  // scrolls if even that's not enough room).
+  if (viewMenu.getBoundingClientRect().top < 8) Object.assign(viewMenu.style, { top: "8px", bottom: "" });
   viewMenu.querySelector(".view-item")?.focus();
 }
 
@@ -801,7 +865,8 @@ function renderStepper(s) {
 
 function renderPhotoTabs(s) {
   const el = $("#photo-tabs");
-  if (s.photos.length < 2) {
+  // A lone tab still says where the photo comes from (Mapillary, Commons…).
+  if (!s.photos.length) {
     el.innerHTML = "";
     return;
   }
@@ -1147,6 +1212,9 @@ function wireEvents() {
 
   $("#detail").addEventListener("click", (e) => {
     if (e.target.closest("[data-action=close]")) return closeDetail();
+    // Minimised, the whole title bar expands the panel again.
+    if (state.detailPeek) return setDetailPeek(false);
+    if (e.target.closest("[data-action=peek]")) return setDetailPeek(true);
     if (e.target.closest("[data-action=expand]")) return setPhotoExpanded(true);
     if (e.target.closest("[data-action=shrink]")) return setPhotoExpanded(false);
     if (e.target.closest("[data-action=josm]") && state.selected) return openInJosm(state.selected);
