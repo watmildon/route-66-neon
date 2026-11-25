@@ -32,6 +32,8 @@ jobs:
       NEON_MAX_DATA_LAG_HOURS: ${{ vars.MAX_DATA_LAG_HOURS || '48' }}
       # Optional private Overpass instance. Empty → public mirrors.
       OVERPASS_PRIMARY_URL: ${{ secrets.OVERPASS_PRIMARY_URL }}
+      # Optional backup private instance, tried after the primary. Empty → skipped.
+      OVERPASS_SECONDARY_URL: ${{ secrets.OVERPASS_SECONDARY_URL }}
       # Mapillary client token for aiming 360° photos at newly tagged signs.
       # Needs Read access (Graph API computed_compass_angle); a tiles-only
       # token falls back to guessing the lens side. Empty → not aimed.

@@ -2,12 +2,15 @@
 // fallback for signs). Both return a normalised list of elements:
 //   { type: "node"|"way"|"relation", id, lon, lat, tags }
 //
-// Overpass endpoint resolution, first hit wins:
-//   1. OVERPASS_URL, else OVERPASS_PRIMARY_URL (CI repository secret)
-//   2. .overpass-url in the repo root (gitignored)
-//   3. ~/.claude/.overpass-url
-//   4. public mirrors
-// The private URL is a secret: it is never logged — errors report only a
+// Overpass endpoints, tried in this order until one answers:
+//   1. the private instance, first hit wins: OVERPASS_URL, else
+//      OVERPASS_PRIMARY_URL (CI repository secret), else .overpass-url in the
+//      repo root (gitignored), else ~/.claude/.overpass-url
+//   2. a secondary private instance, as a backup: OVERPASS_SECONDARY_URL (CI
+//      repository secret), else .overpass-secondary-url in the repo root
+//      (gitignored), else ~/.claude/.overpass-secondary-url
+//   3. public mirrors
+// Private URLs are secrets: they are never logged — errors report only a
 // label and an HTTP status code.
 
 import { existsSync, readFileSync } from "node:fs";
@@ -129,15 +132,24 @@ function readUrlFile(path) {
 
 export function overpassEndpoints(repoRoot) {
   const eps = [];
-  const priv =
+  const addPrivate = (url, label) => {
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) console.warn(`WARNING: ${label} URL is malformed; skipping it.`);
+    else if (!eps.some((e) => e.url === url)) eps.push({ url, label, isPublic: false });
+  };
+  addPrivate(
     process.env.OVERPASS_URL?.trim() ||
-    process.env.OVERPASS_PRIMARY_URL?.trim() ||
-    readUrlFile(join(repoRoot, ".overpass-url")) ||
-    readUrlFile(join(homedir(), ".claude", ".overpass-url"));
-  if (priv) {
-    if (/^https?:\/\//i.test(priv)) eps.push({ url: priv, label: "private Overpass", isPublic: false });
-    else console.warn("WARNING: private Overpass URL is malformed; skipping it.");
-  }
+      process.env.OVERPASS_PRIMARY_URL?.trim() ||
+      readUrlFile(join(repoRoot, ".overpass-url")) ||
+      readUrlFile(join(homedir(), ".claude", ".overpass-url")),
+    "private Overpass"
+  );
+  addPrivate(
+    process.env.OVERPASS_SECONDARY_URL?.trim() ||
+      readUrlFile(join(repoRoot, ".overpass-secondary-url")) ||
+      readUrlFile(join(homedir(), ".claude", ".overpass-secondary-url")),
+    "secondary private Overpass"
+  );
   PUBLIC_MIRRORS.forEach((url, i) => eps.push({ url, label: `public Overpass mirror ${i + 1}`, isPublic: true }));
   return eps;
 }

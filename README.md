@@ -212,12 +212,13 @@ The worst stage on any of the three keys wins, and the older `disused=yes` /
 
 ### Settings
 
-All optional. Set them as repository **variables**, or the **secret** for the
-Overpass URL:
+All optional. Set them as repository **variables**, or as **secrets** where
+marked:
 
 | Name | Default | Purpose |
 |---|---|---|
 | `OVERPASS_PRIMARY_URL` (secret) | — | Private Overpass instance tried before the public mirrors. Never logged. |
+| `OVERPASS_SECONDARY_URL` (secret) | — | Backup private Overpass instance, tried after the primary and before the public mirrors. Never logged. |
 | `MAPILLARY_TOKEN` (secret) | — | Mapillary client token for looking up newly tagged photos. Its app needs **Read** access so the Graph API returns `computed_compass_angle`; a tiles-only token still positions photos but leaves 360° ones aimed by guesswork. Photos already in the data are reused, so it's only needed for new ones. Locally: env var or a gitignored `.mapillary-token` file. |
 | `BUFFER_M` | `400` | Corridor width either side of the route line |
 | `DROP_THRESHOLD` | `50` | Max % drop in sign count before the update is refused |
@@ -226,7 +227,9 @@ Overpass URL:
 
 Locally, the scripts find a private Overpass endpoint from `OVERPASS_URL` /
 `OVERPASS_PRIMARY_URL`, then `.overpass-url` in the repo root (gitignored),
-then `~/.claude/.overpass-url`, and otherwise use the public mirrors.
+then `~/.claude/.overpass-url`. A backup comes from `OVERPASS_SECONDARY_URL`,
+`.overpass-secondary-url` (gitignored) or `~/.claude/.overpass-secondary-url`
+and is tried next. The public mirrors come last.
 
 ## Running locally
 
